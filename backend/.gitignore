@@ -1,0 +1,8 @@
+# dotenv environment variable files
+.env
+.env.*
+!.env.example
+
+
+__pycache__/
+venv/
