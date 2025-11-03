@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-// import DeckGL from '@deck-gl/react'; // DeckGL は不要
-// import { IconLayer } from '@deck-gl/layers'; // IconLayer は不要
 import { Map, MapRef, ViewState, ScaleControl, Popup } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-// import { api } from './api'; // api.ts は不要
-// import { useInterval } from './useInterval'; // useInterval は不要
+// --- react-icons のインポート ---
+import { LuMap, LuLayers, LuTriangleAlert } from 'react-icons/lu';
+import { FaCar } from 'react-icons/fa6';
 
-// --- 【修正】初期視点を環境変数から読み込む ---
+// --- 初期視点を環境変数から読み込む ---
 const INITIAL_VIEW_STATE = {
   // 環境変数 VITE_INITIAL_LONGITUDE を読み込み、なければデフォルト値 (-0.1278) を使用
   longitude: parseFloat(import.meta.env.VITE_INITIAL_LONGITUDE || '-0.1278'),
@@ -89,35 +88,31 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
   };
 
   return (
-    <div style={{
-      position: 'absolute',
-      bottom: '280px',
-      right: '10px',
-      zIndex: 1,
-    }}
-    >
+    <div style={{ position: 'relative' }}> {/* ラッパーを追加 */}
       <button
         onClick={() => setIsMenuOpen(!isMenuOpen)}
         style={{
           backgroundColor: 'white', border: '1px solid #ccc', borderRadius: '4px',
           padding: '5px', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          //  MarineTraffic 風の正方形ボタン
+          width: '32px', height: '32px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
         }}
         title="Change map style"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-            <polyline points="2 17 12 22 22 17"></polyline>
-            <polyline points="2 12 12 17 22 12"></polyline>
-        </svg>
+        <LuMap size={20} /> {/* react-icon */}
       </button>
 
       {isMenuOpen && (
         <div style={{
-          position: 'absolute', top: '35px', right: '0',
-          backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: '5px',
+          position: 'absolute', top: '0', right: '40px', // ボタンの左側に表示
+          backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: '10px',
           borderRadius: '5px', boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
           display: 'flex', flexDirection: 'column',
+          width: '120px', // パネル幅
+          zIndex: 2,
         }}>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #ccc', paddingBottom: '4px' }}>Map type</h4>
           {(Object.keys(baseMapUrls) as BaseMapStyleKey[]).map((key) => (
             <button
               key={key}
@@ -140,30 +135,31 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
   );
 };
 
-// --- 【追加】レイヤー切り替えコンポーネント ---
-interface LayerSwitcherProps {
+// --- 【追加】レイヤー切り替えパネル ---
+interface LayerMenuPanelProps {
   isFlowVisible: boolean;
   onToggleFlow: () => void;
   isIncidentsVisible: boolean;
   onToggleIncidents: () => void;
 }
 
-const LayerSwitcher: React.FC<LayerSwitcherProps> = ({
+const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
   isFlowVisible, onToggleFlow, isIncidentsVisible, onToggleIncidents
 }) => (
   <div style={{
     position: 'absolute',
-    top: '10px', // BaseMapSwitcher の下に配置
-    right: '10px',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    padding: '8px',
+    bottom: '280px', // ボタン群と同じ高さ
+    right: '50px', // ボタンの左側に表示
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    padding: '10px',
     borderRadius: '5px',
     zIndex: 1,
-    display: 'flex',
-    flexDirection: 'column',
+    width: '150px',
+    boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
     fontFamily: 'sans-serif',
     fontSize: '12px',
   }}>
+    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #ccc', paddingBottom: '4px' }}>Layers</h4>
     <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
       <input
         type="checkbox"
@@ -192,13 +188,17 @@ function MapDashboard() {
   const [error, setError] = useState<string | null>(null);
   const mapRef = useRef<MapRef>(null);
   const [currentMapStyleKey, setCurrentMapStyleKey] = useState<BaseMapStyleKey>("positron");
-  const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number; content: string } | null>(null);
-  const [popupInfo, setPopupInfo] = useState<{ longitude: number; latitude: number; content: string } | null>(null);
+  // content の型を React.ReactNode に変更
+  const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number } | null>(null);
+  const [popupInfo, setPopupInfo] = useState<{ longitude: number; latitude: number; content: React.ReactNode } | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
-  const [tooltipContent, setTooltipContent] = useState<string>('');
+  const [tooltipContent, setTooltipContent] = useState<React.ReactNode>(null);
 
   const [isFlowVisible, setIsFlowVisible] = useState(true);
   const [isIncidentsVisible, setIsIncidentsVisible] = useState(true);
+
+  // レイヤーパネル用の state
+  const [isLayerMenuOpen, setIsLayerMenuOpen] = useState(false);
 
   const mapStyleUrl = baseMapUrls[currentMapStyleKey];
 
@@ -221,9 +221,17 @@ function MapDashboard() {
             if (map.getLayer('tomtom-traffic-layer')) {
                 map.setLayoutProperty('tomtom-traffic-layer', 'visibility', isFlowVisible ? 'visible' : 'none');
             }
-            if (map.getLayer('tomtom-traffic-incident-layer')) {
-                map.setLayoutProperty('tomtom-traffic-incident-layer', 'visibility', isIncidentsVisible ? 'visible' : 'none');
-            }
+            // レイヤーIDの配列を使用
+            const incidentLayerIds = [
+                // 'tomtom-traffic-incident-point-layer',
+                'tomtom-traffic-incident-layer-outline',
+                'tomtom-traffic-incident-layer-dash'
+            ];
+            incidentLayerIds.forEach(layerId => {
+                if (map.getLayer(layerId)) {
+                    map.setLayoutProperty(layerId, 'visibility', isIncidentsVisible ? 'visible' : 'none');
+                }
+            });
         } catch (error) {
             console.error("Error setting initial layer visibility (style might be changing):", error);
         }
@@ -237,43 +245,51 @@ function MapDashboard() {
 
   }, [isFlowVisible, isIncidentsVisible]);
 
-  // --- Popup/Tooltipの内容を整形する関数 ---
+  // --- Popup/Tooltipの内容を整形する関数 (JSXを返すように変更) ---
   // 交通流 (Flow) 用
-  const formatFlowContent = (properties: any): string => {
+  const formatFlowContent = (properties: any): React.ReactNode => {
     // --- スタイルとアイコン定義 (Flow) ---
-    const style = 'style="font-family: sans-serif; font-size: 12px; max-width: 250px; background-color: rgba(0,0,0,0.7); color: white; padding: 5px 8px; border-radius: 3px;"';
-    // Google Fonts 'Directions Car' icon (white fill)
-    const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 0 24 24" width="18px" fill="#FFFFFF" style="vertical-align: middle; margin-right: 5px;"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5s1.5.67 1.5 1.5s-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`;
-    const title = `<strong style="font-size: 14px; display: flex; align-items: center; margin-bottom: 5px;">${iconSvg} Traffic Flow</strong>`;
+    const style: React.CSSProperties = { fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px', backgroundColor: 'rgba(0,0,0,0.7)', color: 'white', padding: '5px 8px', borderRadius: '3px' };
+    // react-icon を使用
+    const title = (
+        <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+            <FaCar size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Traffic Flow
+        </strong>
+    );
 
-    if (!properties) return `<div ${style}>${title}<br/>(No data)</div>`;
+    if (!properties) return <div style={style}>{title}<br/>(No data)</div>;
 
     // --- 動的ロジック ---
     const internalKeys = new Set(['$type', 'layer', 'source', 'sourceLayer', 'state', 'tile']);
-    const lines: string[] = [];
-    for (const key in properties) {
+    const lines: React.ReactNode[] = [];
+    const keys = Object.keys(properties).sort(); // ソート
+
+    for (const key of keys) {
         if (Object.prototype.hasOwnProperty.call(properties, key) && !internalKeys.has(key)) {
             const value = properties[key];
             if (value !== undefined && value !== null) {
                 const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
 
-                // traffic_level の場合に ' km/h' を付記
                 let displayValue = String(value);
                 if (key === 'traffic_level') {
                     displayValue += ' km/h';
                 }
 
-                lines.push(`<span style="overflow-wrap: break-word;"><strong>${formattedKey}:</strong> ${displayValue}</span>`);
+                lines.push(
+                    <span style={{ overflowWrap: 'break-word' }} key={key}>
+                        <strong>{formattedKey}:</strong> {displayValue}
+                    </span>
+                );
             }
         }
     }
-    lines.sort();
 
     const content = (lines.length === 0)
         ? "(No detailed info available)"
-        : `<div style="display: flex; flex-direction: column; gap: 4px;">${lines.join('')}</div>`;
+        // JSX配列を直接渡す
+        : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>{lines}</div>;
 
-    return `<div ${style}>${title}${content}</div>`;
+    return <div style={style}>{title}{content}</div>;
   };
 
   // --- ISO 8601 形式の日付を 'YYYY-MM-DD HH:mm:ss UTC' に変換するヘルパー関数 ---
@@ -293,21 +309,24 @@ function MapDashboard() {
         const minutes = String(date.getUTCMinutes()).padStart(2, '0');
         const seconds = String(date.getUTCSeconds()).padStart(2, '0');
 
-        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`; // 要望のフォーマット
     } catch (e) {
         return isoString; // エラー時も元の文字列を返す
     }
   };
 
   // インシデント (Incident) 用
-  const formatIncidentContent = (properties: any): string => {
+  const formatIncidentContent = (properties: any): React.ReactNode => {
     // --- スタイルとアイコン定義 (Incident) ---
-    const style = 'style="font-family: sans-serif; font-size: 12px; max-width: 250px; background-color: #FFF9C4; color: black; padding: 5px 8px; border-radius: 3px; border: 1px solid #E0E0E0;"';
-    // Google Fonts 'Warning' icon (black fill)
-    const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 0 24 24" width="18px" fill="#000000" style="vertical-align: middle; margin-right: 5px;"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>`;
-    const title = `<strong style="font-size: 14px; display: flex; align-items: center; margin-bottom: 5px;">${iconSvg} Traffic Incident</strong>`;
+    const style: React.CSSProperties = { fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px', backgroundColor: 'rgba(255,249,196,0.7)', color: 'black', padding: '5px 8px', borderRadius: '3px', border: '1px solid #E0E0E0' };
+    // react-icon を使用
+    const title = (
+        <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+            <LuTriangleAlert size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Traffic Incident
+        </strong>
+    );
 
-    if (!properties) return `<div ${style}>${title}<br/>(No data)</div>`;
+    if (!properties) return <div style={style}>{title}<br/>(No data)</div>;
 
     // --- Icon Category の定義マップ ---
     const iconCategoryMap: { [key: number]: string } = {
@@ -330,8 +349,10 @@ function MapDashboard() {
     // 日付としてフォーマットするキーのリスト
     const dateKeys = new Set(['end_date', 'last_report_time']);
 
-    const lines: string[] = [];
-    for (const key in properties) {
+    const lines: React.ReactNode[] = [];
+    const keys = Object.keys(properties).sort(); // ソート
+
+    for (const key of keys) {
         if (Object.prototype.hasOwnProperty.call(properties, key) && !internalKeys.has(key)) {
             const value = properties[key];
             if (value !== undefined && value !== null) {
@@ -340,47 +361,47 @@ function MapDashboard() {
                 let displayValue = String(value);
 
                 if (key === 'delay') {
-                    // 1. delay に 's' を付記
                     displayValue = `${String(value)} s`;
 
                 } else if (key === 'magnitude') {
-                    // 2. magnitude に意味を付記
                     let magnitudeText = 'Unknown'; // 0 またはリスト外の場合
                     switch (Number(value)) {
                         case 1: magnitudeText = 'Minor'; break;
                         case 2: magnitudeText = 'Moderate'; break;
                         case 3: magnitudeText = 'Major'; break;
-                        case 4: magnitudeText = 'Indefinite (road closures and other delays with an unstated length of time)'; break;
+                        case 4: magnitudeText = 'Indefinite (road closures and other delays with an unstated length of time)'; break; // (短縮)
                     }
                     displayValue = `${String(value)}. ${magnitudeText}`;
 
-                // --- icon_category_X のロジックをここに追加 ---
                 } else if (key.startsWith('icon_category')) {
                     const numericValue = Number(value);
                     const description = iconCategoryMap[numericValue]; // マップから説明を取得
 
                     if (description !== undefined) {
-                        displayValue = `${String(value)}. ${description}`; // "7 (Lane Closed)"
+                        displayValue = `${String(value)}. ${description}`;
                     } else {
-                        displayValue = `${String(value)}. Other`; // マップにない場合
+                        displayValue = `${String(value)}. Other`;
                     }
 
                 } else if (dateKeys.has(key) && typeof value === 'string' && value.endsWith('Z')) {
-                    // (既存の日付フォーマット処理)
                     displayValue = formatDateUTC(value);
                 }
 
-                lines.push(`<span style="overflow-wrap: break-word;"><strong>${formattedKey}:</strong> ${displayValue}</span>`);
+                lines.push(
+                    <span style={{ overflowWrap: 'break-word' }} key={key}>
+                        <strong>{formattedKey}:</strong> {displayValue}
+                    </span>
+                );
             }
         }
     }
-    lines.sort();
 
     const content = (lines.length === 0)
         ? "(No detailed info available)"
-        : `<div style="display: flex; flex-direction: column; gap: 4px;">${lines.join('')}</div>`;
+        // JSX配列を直接渡す
+        : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>{lines}</div>;
 
-    return `<div ${style}>${title}${content}</div>`;
+    return <div style={style}>{title}{content}</div>;
   };
 
   // --- マウスホバー時の処理 ---
@@ -396,7 +417,7 @@ function MapDashboard() {
     const map = mapRef.current?.getMap();
     if (map) map.getCanvas().style.cursor = (flowFeature || incidentFeature) ? 'pointer' : '';
 
-    let content = "";
+    let content: React.ReactNode = null; // string -> React.ReactNode
     if (incidentFeature) { // インシデントを優先
       content = formatIncidentContent(incidentFeature.properties);
     } else if (flowFeature) { // 次に交通流
@@ -404,11 +425,12 @@ function MapDashboard() {
     }
 
     if (content) {
-      setHoverInfo({ x: point.x, y: point.y, feature: incidentFeature || flowFeature });
+      setHoverInfo({ x: point.x, y: point.y });
       setTooltipContent(content);
       setPopupInfo(null);
     } else {
       setHoverInfo(null);
+      setTooltipContent(null);
     }
   }, []); // 依存配列は空
 
@@ -416,7 +438,6 @@ function MapDashboard() {
   const handleClick = useCallback((event: maplibregl.MapLayerMouseEvent) => {
     const { features, lngLat } = event;
     const flowFeature = features && features.find(f => f.layer.id === 'tomtom-traffic-layer');
-    // 3つのレイヤーIDのいずれかに一致するかをチェック
     const incidentFeature = features && features.find(f =>
         // f.layer.id === 'tomtom-traffic-incident-point-layer' ||
         f.layer.id === 'tomtom-traffic-incident-layer-outline' ||
@@ -424,7 +445,7 @@ function MapDashboard() {
     );
 
     let featureToShow = null;
-    let content = "";
+    let content: React.ReactNode = null; // string -> React.ReactNode
 
     if (incidentFeature) {
         featureToShow = incidentFeature;
@@ -436,6 +457,7 @@ function MapDashboard() {
 
     if (featureToShow) {
         setHoverInfo(null);
+        setTooltipContent(null);
         setPopupInfo({
             longitude: lngLat.lng,
             latitude: lngLat.lat,
@@ -475,7 +497,7 @@ function MapDashboard() {
             tooltipElement.style.left = `${finalLeft}px`;
             tooltipElement.style.visibility = 'visible';
         } else if (tooltipRef.current) {
-            tooltipRef.current.style.visibility = 'hidden';
+            tooltipElement.style.visibility = 'hidden';
         }
   }, [hoverInfo, tooltipContent]);
 
@@ -483,8 +505,6 @@ function MapDashboard() {
   const renderTooltip = () => {
         if (!hoverInfo || !tooltipContent) return null;
 
-        // 【修正】 ツールチップのコンテナからは背景色やパディングを削除
-        // スタイルは format 関数が返すHTMLにすべて含まれる
         const tooltipStyle: React.CSSProperties = {
             position: 'absolute',
             zIndex: 1002,
@@ -494,9 +514,10 @@ function MapDashboard() {
         };
 
         return (
-            <div ref={tooltipRef} style={tooltipStyle}
-              dangerouslySetInnerHTML={{ __html: tooltipContent }}
-            />
+            // 【修正】 dangerouslySetInnerHTML -> {tooltipContent}
+            <div ref={tooltipRef} style={tooltipStyle}>
+              {tooltipContent}
+            </div>
         );
   };
 
@@ -577,21 +598,52 @@ function MapDashboard() {
                   anchor="bottom"
                   style={{ maxHeight: '200px', overflowY: 'auto' }}
               >
-                <div dangerouslySetInnerHTML={{ __html: popupInfo.content }} />
+                {/* dangerouslySetInnerHTML -> {popupInfo.content} */}
+                {popupInfo.content}
               </Popup>
           )}
       </Map>
 
       {renderTooltip()}
       <Legend />
-      <BaseMapSwitcher currentStyle={currentMapStyleKey} onChangeStyle={setCurrentMapStyleKey} />
-      {/* 【追加】レイヤー切り替えUI */}
-      <LayerSwitcher
-        isFlowVisible={isFlowVisible}
-        onToggleFlow={() => setIsFlowVisible(!isFlowVisible)}
-        isIncidentsVisible={isIncidentsVisible}
-        onToggleIncidents={() => setIsIncidentsVisible(!isIncidentsVisible)}
-      />
+
+      {/* --- MarineTraffic風 UIボタングループ --- */}
+      <div style={{
+        position: 'absolute',
+        bottom: '280px', // 凡例 (Legend) の上
+        right: '10px',
+        zIndex: 1,
+        display: 'flex',
+        flexDirection: 'column', // 縦に積む
+        gap: '8px', // ボタン間の隙間
+      }}>
+        {/* --- レイヤー切り替えボタン --- */}
+        <button
+          onClick={() => setIsLayerMenuOpen(!isLayerMenuOpen)}
+          style={{
+            backgroundColor: 'white', border: '1px solid #ccc', borderRadius: '4px',
+            padding: '5px', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            width: '32px', height: '32px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}
+          title="Toggle layers"
+        >
+          <LuLayers size={20} />
+        </button>
+
+        {/* --- ベースマップ切り替えボタン --- */}
+        <BaseMapSwitcher currentStyle={currentMapStyleKey} onChangeStyle={setCurrentMapStyleKey} />
+      </div>
+
+      {/* --- レイヤー切り替えパネル --- */}
+      {isLayerMenuOpen && (
+          <LayerMenuPanel
+              isFlowVisible={isFlowVisible}
+              onToggleFlow={() => setIsFlowVisible(!isFlowVisible)}
+              isIncidentsVisible={isIncidentsVisible}
+              onToggleIncidents={() => setIsIncidentsVisible(!isIncidentsVisible)}
+          />
+      )}
     </div>
   );
 }
