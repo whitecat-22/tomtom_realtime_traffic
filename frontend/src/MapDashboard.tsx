@@ -14,6 +14,8 @@ import { BsPinFill, BsPinAngle } from "react-icons/bs";
 import { FaGlobeAmericas } from "react-icons/fa";
 import { FaCar } from 'react-icons/fa6';
 import { GiHorizonRoad } from "react-icons/gi";
+// 凡例トグル用アイコン
+import { MdLegendToggle } from "react-icons/md";
 
 // --- 初期視点を環境変数から読み込む ---
 const INITIAL_VIEW_STATE = {
@@ -37,9 +39,12 @@ const legendData = [
   { speed: '80-',   color: '#004CB0' },
 ];
 
-// --- 凡例コンポーネント ---
-const Legend = () => (
-  <div style={{
+// --- 開閉式凡例コンポーネント ---
+const LegendControl = () => {
+  const [isLegendOpen, setIsLegendOpen] = useState(false); // 凡例の開閉状態
+
+  // 開いているときのスタイル
+  const openStyle: React.CSSProperties = {
     backgroundColor: 'rgba(30,30,30,0.8)',
     color: 'white',
     border: '1px solid #555',
@@ -49,23 +54,59 @@ const Legend = () => (
     fontFamily: 'sans-serif',
     fontSize: '12px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-  }}>
-    <h4 style={{ margin: '0 0 5px 0', color: 'white' }}>Speed (km/h)</h4>
-    {legendData.map((item) => (
-      <div key={item.speed} style={{ marginBottom: '3px' }}>
-        <span style={{
-          display: 'inline-block',
-          width: '15px',
-          height: '15px',
-          backgroundColor: item.color,
-          marginRight: '5px',
-          verticalAlign: 'middle',
-        }}></span>
-        <span>{item.speed}</span>
+    cursor: 'pointer', // 開いたパネルをクリックしても閉じられるように
+  };
+
+  // 閉じているときのスタイル (ボタン)
+  const closedStyle: React.CSSProperties = {
+    backgroundColor: '#333',
+    color: 'white',
+    border: '1px solid #555',
+    padding: '5px',
+    cursor: 'pointer',
+    width: '32px',
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxSizing: 'border-box',
+    borderRadius: '4px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+  };
+
+  if (isLegendOpen) {
+    // 開いている状態
+    return (
+      <div style={openStyle} onClick={() => setIsLegendOpen(false)}>
+        <h4 style={{ margin: '0 0 5px 0', color: 'white' }}>Speed (km/h)</h4>
+        {legendData.map((item) => (
+          <div key={item.speed} style={{ marginBottom: '3px' }}>
+            <span style={{
+              display: 'inline-block',
+              width: '15px',
+              height: '15px',
+              backgroundColor: item.color,
+              marginRight: '5px',
+              verticalAlign: 'middle',
+            }}></span>
+            <span>{item.speed}</span>
+          </div>
+        ))}
       </div>
-    ))}
-  </div>
-);
+    );
+  }
+
+  // 閉じている状態 (ボタン)
+  return (
+    <button
+      style={closedStyle}
+      onClick={() => setIsLegendOpen(true)}
+      title="Show Legend"
+    >
+      <MdLegendToggle size={20} />
+    </button>
+  );
+};
 
 // --- カーソル座標表示コンポーネント ---
 const CursorCoordinates = ({ coords }: { coords: { lng: number; lat: number } | null }) => {
@@ -931,7 +972,9 @@ function MapDashboard() {
             gap: '8px'
         }}>
             {/* 1. Legend */}
-            <Legend />
+            {/* <Legend /> */}
+            {/* 開閉式凡例に変更 */}
+            <LegendControl />
 
             {/* 2. Coords + Zoom Group */}
             <div style={{
