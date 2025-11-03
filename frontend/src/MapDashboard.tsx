@@ -4,9 +4,16 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // --- react-icons のインポート ---
 import {
   LuMap, LuLayers, LuTriangleAlert,
-  LuPlus, LuMinus, LuChevronUp, LuChevronDown, LuGlobe
+  LuPlus, LuMinus, LuChevronUp, LuChevronDown, LuGlobe,
+  // --- サイドバー用アイコン ---
+  LuBell, LuLogIn, LuSettings
 } from 'react-icons/lu';
+// ピン留め用アイコン
+import { BsPinFill, BsPinAngle } from "react-icons/bs";
+// FaGlobeAmericas, FaMapLocationDot を追加
+import { FaGlobeAmericas } from "react-icons/fa";
 import { FaCar } from 'react-icons/fa6';
+import { GiHorizonRoad } from "react-icons/gi";
 
 // --- 初期視点を環境変数から読み込む ---
 const INITIAL_VIEW_STATE = {
@@ -33,7 +40,6 @@ const legendData = [
 // --- 凡例コンポーネント ---
 const Legend = () => (
   <div style={{
-    // ダークテーマ
     backgroundColor: 'rgba(30,30,30,0.8)',
     color: 'white',
     border: '1px solid #555',
@@ -68,10 +74,8 @@ const CursorCoordinates = ({ coords }: { coords: { lng: number; lat: number } | 
   // 度 + 10進数の分 (小数点2桁)
   const toDegMin = (decimal: number, isLat: boolean) => {
       const degrees = Math.floor(Math.abs(decimal));
-      // 5.23 -> 05.23, 55.23 -> 55.23
       const minutes = ((Math.abs(decimal) - degrees) * 60).toFixed(2);
       const direction = isLat ? (decimal >= 0 ? 'N' : 'S') : (decimal >= 0 ? 'E' : 'W');
-      // 末尾の "'" を削除
       return `${degrees}° ${String(minutes).padStart(5, '0')} ${direction}`;
   };
 
@@ -88,16 +92,13 @@ const CursorCoordinates = ({ coords }: { coords: { lng: number; lat: number } | 
           alignItems: 'center',
           gap: '5px',
           height: 'fit-content',
-          // alignSelf: 'flex-end' から 'center' に変更 (親コンテナで制御)
           alignSelf: 'center',
       }}>
           <LuGlobe size={14} />
-          {/* 3行フォーマット */}
           <div style={{ lineHeight: '1.3' }}>
-              {/* textAlign: 'right' を追加 */}
               <div style={{ textAlign: 'right' }}>{toDegMin(coords.lat, true)}</div>
               <div style={{ textAlign: 'right' }}>{toDegMin(coords.lng, false)}</div>
-              <div style={{ fontSize: '10px' }}>
+              <div style={{ fontSize: '10px', color: '#ccc' }}>
                   ({coords.lat.toFixed(6)}, {coords.lng.toFixed(6)})
               </div>
           </div>
@@ -129,7 +130,7 @@ const controlButtonStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxSizing: 'border-box', // ズームレベル表示の幅ズレ修正
+    boxSizing: 'border-box',
 };
 
 // --- ベースマップ切り替えボタンコンポーネント ---
@@ -150,7 +151,6 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
     <div style={{ position: 'relative' }}>
       <button
         onClick={() => setIsMenuOpen(!isMenuOpen)}
-        // 独立したボタンのため borderTop を設定
         style={{ ...controlButtonStyle, borderTop: '1px solid #555', borderRadius: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
         title="Change map style"
       >
@@ -160,7 +160,6 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
       {isMenuOpen && (
         <div style={{
           position: 'absolute', top: '0', right: '40px',
-          // ダークテーマ
           backgroundColor: 'rgba(30,30,30,0.8)',
           color: 'white',
           border: '1px solid #555',
@@ -172,7 +171,6 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
         }}>
           <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #555', paddingBottom: '4px', color: 'white' }}>Map type</h4>
 
-          {/* --- ラジオボタンに変更 --- */}
           {(Object.keys(baseMapUrls) as BaseMapStyleKey[]).map((key) => {
               const label = key === 'positron' ? 'Light' :
                             key === 'darkmatter' ? 'Dark' :
@@ -194,7 +192,6 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
                   </label>
               );
           })}
-
         </div>
       )}
     </div>
@@ -216,7 +213,6 @@ const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
     position: 'absolute',
     top: '0',
     right: '40px',
-    // ダークテーマ
     backgroundColor: 'rgba(30,30,30,0.8)',
     color: 'white',
     border: '1px solid #555',
@@ -251,6 +247,162 @@ const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
 );
 
 
+// --- サイドナビゲーション用コンポーネント ---
+const navIconStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '10px 16px', // 左右のパディングを 16px に
+    cursor: 'pointer',
+    color: '#eee', // アイコンの色
+    borderRadius: '4px',
+    margin: '5px 0', // 上下のマージン
+};
+
+const navIconHoverStyle: React.CSSProperties = {
+    backgroundColor: '#444', // ホバー時の背景色
+    color: 'white',
+};
+
+// NavItem component
+const NavItem = ({ icon, text, isOpen }: { icon: React.ReactNode, text: string, isOpen: boolean }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    return (
+        <div
+            style={{
+              ...navIconStyle,
+              ...(isHovered ? navIconHoverStyle : {}),
+              justifyContent: isOpen ? 'flex-start' : 'center', // 閉じているときは中央揃え
+            }}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            title={!isOpen ? text : undefined} // ツールチップを閉じてるときだけ表示
+        >
+            {icon}
+            {isOpen && <span style={{ marginLeft: '12px', fontSize: '14px', whiteSpace: 'nowrap' }}>{text}</span>}
+        </div>
+    );
+};
+
+// ピン留めボタン用コンポーネント
+const PinButton = ({ isPinned, onClick }: { isPinned: boolean, onClick: () => void }) => {
+    const [isHovered, setIsHovered] = useState(false);
+
+    const pinStyle: React.CSSProperties = {
+        cursor: 'pointer',
+        color: isHovered ? 'white' : '#999', // ホバーで白く
+        transition: 'color 0.1s ease',
+        padding: '5px',
+    };
+
+    return (
+        <div
+            onClick={onClick}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            title={isPinned ? "Unpin menu" : "Pin menu"}
+            style={pinStyle}
+        >
+            {isPinned ? <BsPinFill size={18} /> : <BsPinAngle size={18} />}
+        </div>
+    );
+};
+
+// SideNavbar component
+const SideNavbar = ({
+    isOpen,
+    isPinned,
+    onPinToggle,
+    onHoverEnter,
+    onHoverLeave
+}: {
+    isOpen: boolean,
+    isPinned: boolean,
+    onPinToggle: () => void,
+    onHoverEnter: () => void,
+    onHoverLeave: () => void
+}) => {
+    return (
+        <div
+            style={{
+                position: 'fixed',
+                left: 0,
+                top: 0,
+                height: '100vh',
+                width: isOpen ? '220px' : '52px', // 幅を 220px に
+                backgroundColor: '#222',
+                color: 'white',
+                zIndex: 1003,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                padding: '10px 0',
+                transition: 'width 0.2s ease-in-out',
+                boxShadow: '2px 0 5px rgba(0,0,0,0.3)',
+                fontFamily: 'sans-serif',
+            }}
+            onMouseEnter={onHoverEnter}
+            onMouseLeave={onHoverLeave}
+        >
+            {/* Top Section */}
+            <div>
+                {/* サービスロゴとタイトル、ピン */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '10px 16px', // NavItem と同じパディング
+                    height: '40px', // NavItem と同じ高さ (10*2 + 20)
+                    marginBottom: '10px',
+                }}>
+                    {/* ロゴ */}
+                    <GiHorizonRoad size={isOpen ? 28 : 20} />
+
+                    {/* テキストとピン (開いているときだけ表示) */}
+                    {isOpen && (
+                        <div style={{
+                            marginLeft: '10px',
+                            flexGrow: 1, // 残りのスペースを埋める
+                            overflow: 'hidden',
+                        }}>
+                            <span style={{
+                                fontSize: '14px',
+                                fontWeight: 'bold',
+                                color: 'white',
+                                whiteSpace: 'nowrap',
+                            }}>
+                                Real-time Traffic
+                            </span>
+                            <span style={{
+                                fontSize: '14px',
+                                fontWeight: 'bold',
+                                color: 'white',
+                                whiteSpace: 'nowrap',
+                                display: 'block', // 2行目
+                            }}>
+                                Flow Monitoring
+                            </span>
+                        </div>
+                    )}
+                    {/* ピンボタン (開いているときだけ表示) */}
+                    {isOpen && (
+                        <PinButton isPinned={isPinned} onClick={onPinToggle} />
+                    )}
+                </div>
+
+                {/* Map Icon */}
+                <NavItem icon={<FaGlobeAmericas size={20} />} text="Map" isOpen={isOpen} />
+            </div>
+
+            {/* Bottom Section */}
+            <div>
+                <NavItem icon={<LuBell size={20} />} text="Notifications" isOpen={isOpen} />
+                <NavItem icon={<LuLogIn size={20} />} text="Login" isOpen={isOpen} />
+                <NavItem icon={<LuSettings size={20} />} text="Settings" isOpen={isOpen} />
+            </div>
+        </div>
+    );
+};
+
+
 // --- メインコンポーネント ---
 function MapDashboard() {
   const [viewState, setViewState] = useState<Partial<ViewState>>(INITIAL_VIEW_STATE);
@@ -267,6 +419,12 @@ function MapDashboard() {
 
   const [isLayerMenuOpen, setIsLayerMenuOpen] = useState(false);
   const [cursorCoords, setCursorCoords] = useState<{ lng: number; lat: number } | null>(null);
+
+  // --- サイドバーの state ---
+  const [isSidebarPinned, setIsSidebarPinned] = useState(false);
+  const [isSidebarHoverOpen, setIsSidebarHoverOpen] = useState(false);
+  // 開閉状態を計算
+  const isSidebarOpen = isSidebarPinned || isSidebarHoverOpen;
 
 
   const mapStyleUrl = baseMapUrls[currentMapStyleKey];
@@ -516,26 +674,46 @@ function MapDashboard() {
   useEffect(() => {
         if (tooltipRef.current && hoverInfo && tooltipContent) {
             const tooltipElement = tooltipRef.current;
-            const rect = tooltipElement.getBoundingClientRect();
-            const tooltipHeight = rect.height;
-            const tooltipWidth = rect.width;
+            const mapWrapper = tooltipElement.parentElement; // マップラッパー
+            if (!mapWrapper) return;
+
+            const tooltipRect = tooltipElement.getBoundingClientRect();
+            const tooltipHeight = tooltipRect.height;
+            const tooltipWidth = tooltipRect.width;
             const tooltipOffset = 15;
-            const windowHeight = window.innerHeight;
-            const windowWidth = window.innerWidth;
-            const bottomMargin = 50;
-            const rightMargin = 10;
+
+            // マップラッパーのサイズとウィンドウ内での位置を取得
+            const wrapperRect = mapWrapper.getBoundingClientRect();
+
+            // hoverInfo.x/y はマップラッパーの左上隅からの相対座標
+            // finalTop/Left もマップラッパーの左上隅からの相対座標
 
             let finalTop = hoverInfo.y + tooltipOffset;
             let finalLeft = hoverInfo.x + tooltipOffset;
 
-            if (finalTop + tooltipHeight > windowHeight - bottomMargin) {
+            // --- 垂直方向（上下）のチェック ---
+            // ツールチップの下端がラッパーの下端を超えるか？
+            if (finalTop + tooltipHeight > wrapperRect.height - 30) { // 30pxマージン (attribution)
+                // 超えるなら、カーソルの上に表示
                 finalTop = hoverInfo.y - tooltipHeight - tooltipOffset;
             }
-            if (finalLeft + tooltipWidth > windowWidth - rightMargin) {
+            // ツールチップの上端がラッパーの上端を超えるか？（カーソルの上に表示した場合）
+            if (finalTop < 10) { // 10pxマージン
+                // 超えるなら、上端に固定
+                finalTop = 10;
+            }
+
+            // --- 水平方向（左右）のチェック ---
+            // ツールチップの右端がラッパーの右端を超えるか？
+            if (finalLeft + tooltipWidth > wrapperRect.width - 10) { // 10pxマージン (UI)
+                // 超えるなら、カーソルの左に表示
                 finalLeft = hoverInfo.x - tooltipWidth - tooltipOffset;
             }
-            if (finalTop < 0) { finalTop = tooltipOffset; }
-            if (finalLeft < 0) { finalLeft = tooltipOffset; }
+            // ツールチップの左端がラッパーの左端を超えるか？
+            if (finalLeft < 10) { // 10pxマージン
+                // 超えるなら、左端に固定
+                finalLeft = 10;
+            }
 
             tooltipElement.style.top = `${finalTop}px`;
             tooltipElement.style.left = `${finalLeft}px`;
@@ -619,155 +797,174 @@ function MapDashboard() {
 
   // --- レンダリング ---
   return (
-    <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
-      {error && (
-        <div style={{
-          position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
-          backgroundColor: 'rgba(255, 0, 0, 0.8)', color: 'white', padding: '10px 20px',
-          borderRadius: '5px', zIndex: 1001
-        }}>
-          {error}
-        </div>
-      )}
+    // 全体を包むラッパー
+    <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden' }}>
 
-      <Map
-        ref={mapRef}
-        {...viewState}
-        onMove={handleMapMove}
-        onIdle={handleMapIdle}
-        style={{ width: '100%', height: '100%' }}
-        mapStyle={mapStyleUrl}
-        initialViewState={INITIAL_VIEW_STATE}
-        onLoad={handleMapLoad}
-        attributionControl={true}
-        interactiveLayerIds={[
-            'tomtom-traffic-layer',
-            'tomtom-traffic-incident-layer-outline',
-            'tomtom-traffic-incident-layer-dash'
-        ]}
-        onMouseMove={handleMouseMove}
-        onClick={handleClick}
-        onMouseOut={handleMouseOut}
-      >
-          <ScaleControl unit="metric" position="bottom-left" />
+      {/* サイドナビゲーションバー */}
+      <SideNavbar
+          isOpen={isSidebarOpen}
+          isPinned={isSidebarPinned}
+          onPinToggle={() => setIsSidebarPinned(!isSidebarPinned)}
+          onHoverEnter={() => setIsSidebarHoverOpen(true)}
+          onHoverLeave={() => setIsSidebarHoverOpen(false)}
+      />
 
-          {popupInfo && (
-              <Popup
-                  longitude={popupInfo.longitude}
-                  latitude={popupInfo.latitude}
-                  closeButton={true}
-                  closeOnClick={false}
-                  onClose={() => setPopupInfo(null)}
-                  anchor="bottom"
-                  style={{ maxHeight: '200px', overflowY: 'auto' }}
-              >
-                {popupInfo.content}
-              </Popup>
-          )}
-      </Map>
-
-      {renderTooltip()}
-
-
-      {/* --- Top Right UI Group --- */}
+      {/* マップとUIコントロールのラッパー */}
       <div style={{
-        position: 'absolute',
-        top: '10px',
-        right: '10px',
-        zIndex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
+          position: 'relative',
+          height: '100%',
+          // 'isSidebarOpen' ではなく 'isSidebarPinned' (ピン留め状態) にのみ依存させる
+          marginLeft: isSidebarPinned ? '220px' : '52px',
+          transition: 'margin-left 0.2s ease-in-out',
       }}>
-        {/* 1. Base Map */}
-        <BaseMapSwitcher currentStyle={currentMapStyleKey} onChangeStyle={setCurrentMapStyleKey} />
+        {error && (
+          <div style={{
+            position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
+            backgroundColor: 'rgba(255, 0, 0, 0.8)', color: 'white', padding: '10px 20px',
+            borderRadius: '5px', zIndex: 1001
+          }}>
+            {error}
+          </div>
+        )}
 
-        {/* 2. Layers */}
-        <div style={{ position: 'relative' }}>
-            <button
-              onClick={() => setIsLayerMenuOpen(!isLayerMenuOpen)}
-              style={{ ...controlButtonStyle, borderTop: '1px solid #555', borderRadius: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
-              title="Toggle layers"
-            >
-              <LuLayers size={20} />
-            </button>
-            {isLayerMenuOpen && (
-                <LayerMenuPanel
-                    isFlowVisible={isFlowVisible}
-                    onToggleFlow={() => setIsFlowVisible(!isFlowVisible)}
-                    isIncidentsVisible={isIncidentsVisible}
-                    onToggleIncidents={() => setIsIncidentsVisible(!isIncidentsVisible)}
-                />
+        <Map
+          ref={mapRef}
+          {...viewState}
+          onMove={handleMapMove}
+          onIdle={handleMapIdle}
+          style={{ width: '100%', height: '100%' }}
+          mapStyle={mapStyleUrl}
+          initialViewState={INITIAL_VIEW_STATE}
+          onLoad={handleMapLoad}
+          attributionControl={true}
+          interactiveLayerIds={[
+              'tomtom-traffic-layer',
+              'tomtom-traffic-incident-layer-outline',
+              'tomtom-traffic-incident-layer-dash'
+          ]}
+          onMouseMove={handleMouseMove}
+          onClick={handleClick}
+          onMouseOut={handleMouseOut}
+        >
+            <ScaleControl unit="metric" position="bottom-left" />
+
+            {popupInfo && (
+                <Popup
+                    longitude={popupInfo.longitude}
+                    latitude={popupInfo.latitude}
+                    closeButton={true}
+                    closeOnClick={false}
+                    onClose={() => setPopupInfo(null)}
+                    anchor="bottom"
+                    style={{ maxHeight: '200px', overflowY: 'auto' }}
+                >
+                  {popupInfo.content}
+                </Popup>
             )}
-        </div>
+        </Map>
 
-        {/* 3. Pitch */}
-        <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
-            <button
-                onClick={handlePitchUp}
-                style={(currentPitch >= 60) ? {...disabledControlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'} : {...controlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'}}
-                title="Increase pitch"
-                disabled={currentPitch >= 60}
-            >
-                <LuChevronUp size={18} />
-            </button>
-            <button
-                onClick={handlePitchDown}
-                style={(currentPitch <= 0) ? {...disabledControlButtonStyle, borderRadius: '0 0 4px 4px'} : {...controlButtonStyle, borderRadius: '0 0 4px 4px'}}
-                title="Decrease pitch"
-                disabled={currentPitch <= 0}
-            >
-                <LuChevronDown size={18} />
-            </button>
-        </div>
-      </div>
+        {renderTooltip()}
 
-      {/* --- Bottom Right UI Group --- */}
-      <div style={{
+
+        {/* --- Top Right UI Group --- */}
+        <div style={{
           position: 'absolute',
-          bottom: '35px',
+          top: '10px',
           right: '10px',
           zIndex: 1,
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'flex-end',
-          gap: '8px'
-      }}>
-          {/* 1. Legend */}
-          <Legend />
+          gap: '8px',
+        }}>
+          {/* 1. Base Map */}
+          <BaseMapSwitcher currentStyle={currentMapStyleKey} onChangeStyle={setCurrentMapStyleKey} />
 
-          {/* 2. Coords + Zoom Group */}
-          <div style={{
-              display: 'flex',
-              flexDirection: 'row',
-              // 'flex-end' から 'center' に変更
-              alignItems: 'center',
-              gap: '8px'
-          }}>
-              {/* 2a. Coordinates */}
-              <CursorCoordinates coords={cursorCoords} />
-
-              {/* 2b. Zoom Controls */}
-              <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
-                  <button onClick={handleZoomIn} style={{...controlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'}} title="Zoom in">
-                      <LuPlus size={18} />
-                  </button>
-                  <div style={{
-                      ...controlButtonStyle,
-                      borderTop: 'none',
-                      cursor: 'default',
-                      height: '32px',
-                      fontSize: '12px', fontWeight: 'bold', fontFamily: 'sans-serif',
-                      color: 'white',
-                      backgroundColor: '#333',
-                  }}>
-                      {viewState.zoom?.toFixed(0)}
-                  </div>
-                  <button onClick={handleZoomOut} style={{...controlButtonStyle, borderRadius: '0 0 4px 4px'}} title="Zoom out">
-                      <LuMinus size={18} />
-                  </button>
-              </div>
+          {/* 2. Layers */}
+          <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setIsLayerMenuOpen(!isLayerMenuOpen)}
+                style={{ ...controlButtonStyle, borderTop: '1px solid #555', borderRadius: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
+                title="Toggle layers"
+              >
+                <LuLayers size={20} />
+              </button>
+              {isLayerMenuOpen && (
+                  <LayerMenuPanel
+                      isFlowVisible={isFlowVisible}
+                      onToggleFlow={() => setIsFlowVisible(!isFlowVisible)}
+                      isIncidentsVisible={isIncidentsVisible}
+                      onToggleIncidents={() => setIsIncidentsVisible(!isIncidentsVisible)}
+                  />
+              )}
           </div>
+
+          {/* 3. Pitch */}
+          <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
+              <button
+                  onClick={handlePitchUp}
+                  style={(currentPitch >= 60) ? {...disabledControlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'} : {...controlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'}}
+                  title="Increase pitch"
+                  disabled={currentPitch >= 60}
+              >
+                  <LuChevronUp size={18} />
+              </button>
+              <button
+                  onClick={handlePitchDown}
+                  style={(currentPitch <= 0) ? {...disabledControlButtonStyle, borderRadius: '0 0 4px 4px'} : {...controlButtonStyle, borderRadius: '0 0 4px 4px'}}
+                  title="Decrease pitch"
+                  disabled={currentPitch <= 0}
+              >
+                  <LuChevronDown size={18} />
+              </button>
+          </div>
+        </div>
+
+        {/* --- Bottom Right UI Group --- */}
+        <div style={{
+            position: 'absolute',
+            bottom: '35px',
+            right: '10px',
+            zIndex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            gap: '8px'
+        }}>
+            {/* 1. Legend */}
+            <Legend />
+
+            {/* 2. Coords + Zoom Group */}
+            <div style={{
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: '8px'
+            }}>
+                {/* 2a. Coordinates */}
+                <CursorCoordinates coords={cursorCoords} />
+
+                {/* 2b. Zoom Controls */}
+                <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
+                    <button onClick={handleZoomIn} style={{...controlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'}} title="Zoom in">
+                        <LuPlus size={18} />
+                    </button>
+                    <div style={{
+                        ...controlButtonStyle,
+                        borderTop: 'none',
+                        cursor: 'default',
+                        height: '32px',
+                        fontSize: '12px', fontWeight: 'bold', fontFamily: 'sans-serif',
+                        color: 'white',
+                        backgroundColor: '#333',
+                    }}>
+                        {viewState.zoom?.toFixed(0)}
+                    </div>
+                    <button onClick={handleZoomOut} style={{...controlButtonStyle, borderRadius: '0 0 4px 4px'}} title="Zoom out">
+                        <LuMinus size={18} />
+                    </button>
+                </div>
+            </div>
+        </div>
       </div>
     </div>
   );
