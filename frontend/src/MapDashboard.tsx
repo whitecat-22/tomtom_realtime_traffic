@@ -4,19 +4,19 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // --- react-icons のインポート ---
 import {
   LuMap, LuLayers, LuTriangleAlert,
-  LuPlus, LuMinus, LuChevronUp, LuChevronDown, LuGlobe,
+  LuPlus, LuMinus,
   // --- サイドバー用アイコン ---
-  LuBell, LuLogIn, LuSettings,
-  LuSearch // 検索アイコン
+  LuLogIn, LuSettings
 } from 'react-icons/lu';
 // ピン留め用アイコン
 import { BsPinFill, BsPinAngle } from "react-icons/bs";
-// FaGlobeAmericas, FaMapLocationDot を追加
-import { FaGlobeAmericas } from "react-icons/fa";
+import { VscTriangleUp, VscTriangleDown } from "react-icons/vsc";
+import { FaSearchLocation, FaGlobeAmericas } from "react-icons/fa";
 import { FaCar } from 'react-icons/fa6';
 import { GiHorizonRoad } from "react-icons/gi";
+import { BiErrorAlt } from "react-icons/bi";
 // 凡例トグル用アイコン
-import { MdLegendToggle } from "react-icons/md";
+import { MdNotifications, MdLegendToggle } from "react-icons/md";
 
 // --- 初期視点を環境変数から読み込む ---
 const INITIAL_VIEW_STATE = {
@@ -136,7 +136,7 @@ const CursorCoordinates = ({ coords }: { coords: { lng: number; lat: number } | 
           height: 'fit-content',
           alignSelf: 'center',
       }}>
-          <LuGlobe size={14} />
+          <FaGlobeAmericas size={20} />
           <div style={{ lineHeight: '1.3' }}>
               <div style={{ textAlign: 'right' }}>{toDegMin(coords.lat, true)}</div>
               <div style={{ textAlign: 'right' }}>{toDegMin(coords.lng, false)}</div>
@@ -376,7 +376,6 @@ const SideNavbar = ({
                 zIndex: 1003,
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'space-between',
                 padding: '10px 0',
                 transition: 'width 0.2s ease-in-out',
                 boxShadow: '2px 0 5px rgba(0,0,0,0.3)',
@@ -431,12 +430,16 @@ const SideNavbar = ({
                 </div>
 
                 {/* Map Icon */}
-                <NavItem icon={<FaGlobeAmericas size={20} />} text="Map" isOpen={isOpen} />
+                {/* <NavItem icon={<FaGlobeAmericas size={20} />} text="Map" isOpen={isOpen} /> */}
             </div>
 
             {/* Bottom Section */}
-            <div>
-                <NavItem icon={<LuBell size={20} />} text="Notifications" isOpen={isOpen} />
+            <div style={{
+                position: 'absolute',
+                bottom: '20px', // 画面下端からの距離 (タスクバー分 + 5px)
+                width: '100%',  // 親要素の幅に合わせる
+            }}>
+                <NavItem icon={<MdNotifications size={20} />} text="Notifications" isOpen={isOpen} />
                 <NavItem icon={<LuLogIn size={20} />} text="Login" isOpen={isOpen} />
                 <NavItem icon={<LuSettings size={20} />} text="Settings" isOpen={isOpen} />
             </div>
@@ -445,13 +448,14 @@ const SideNavbar = ({
 };
 
 
-// --- 検索バーコンポーネント ---
+// --- 検索バーコンポーネント (Props を変更) ---
 interface SearchBarProps {
+  query: string;
+  setQuery: (query: string) => void;
   onSearch: (query: string) => void;
 }
 
-const SearchBar: React.FC<SearchBarProps> = ({ onSearch }) => {
-  const [query, setQuery] = useState("");
+const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -464,11 +468,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch }) => {
     <form
       onSubmit={handleSubmit}
       style={{
-        position: 'absolute',
-        top: '10px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 1001,
+        // position 関連は親ラッパーで管理
         backgroundColor: 'rgba(30, 30, 30, 0.8)',
         border: '1px solid #555',
         borderRadius: '4px',
@@ -481,7 +481,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch }) => {
       <input
         type="text"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => setQuery(e.target.value)} // 親の state を更新
         placeholder="Search location..."
         style={{
           backgroundColor: 'transparent',
@@ -507,7 +507,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch }) => {
         }}
         title="Search"
       >
-        <LuSearch size={18} />
+        <FaSearchLocation size={20} />
       </button>
     </form>
   );
@@ -536,6 +536,9 @@ function MapDashboard() {
   const [isSidebarHoverOpen, setIsSidebarHoverOpen] = useState(false);
   // 開閉状態を計算
   const isSidebarOpen = isSidebarPinned || isSidebarHoverOpen;
+
+  // --- 検索クエリ用の state ---
+  const [searchQuery, setSearchQuery] = useState("");
 
 
   const mapStyleUrl = baseMapUrls[currentMapStyleKey];
@@ -781,6 +784,18 @@ function MapDashboard() {
     }
   }, []);
 
+  // --- エラー表示の5秒タイマー ---
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 5000); // 5000ms = 5秒
+
+      // コンポーネントがアンマウントされるか、errorが変更された場合にタイマーをクリア
+      return () => clearTimeout(timer);
+    }
+  }, [error]); // error state が変更されるたびに実行
+
   // --- ツールチップの位置調整ロジック ---
   useEffect(() => {
         if (tooltipRef.current && hoverInfo && tooltipContent) {
@@ -919,13 +934,15 @@ function MapDashboard() {
 
       if (data.latitude && data.longitude) {
         // マップを指定の座標に移動 (flyTo)
-        mapRef.current?.flyTo({
+        // flyTo が完了するのを待つ
+        await mapRef.current?.flyTo({
           center: [data.longitude, data.latitude],
-          zoom: 10, // 地名検索後の適切なズームレベル
+          zoom: INITIAL_VIEW_STATE.zoom, // 地名検索後の適切なズームレベル
           pitch: 0, // 検索時は真上から
           bearing: 0,
           essential: true,
         });
+        setSearchQuery(""); // アニメーション完了後にクエリをクリア
       } else {
         throw new Error("Invalid coordinates received from server");
       }
@@ -958,18 +975,44 @@ function MapDashboard() {
           marginLeft: isSidebarPinned ? '220px' : '52px',
           transition: 'margin-left 0.2s ease-in-out',
       }}>
-        {error && (
-          <div style={{
-            position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
-            backgroundColor: 'rgba(255, 0, 0, 0.8)', color: 'white', padding: '10px 20px',
-            borderRadius: '5px', zIndex: 1001
-          }}>
-            {error}
-          </div>
-        )}
 
-        {/* 検索バーをマップラッパー内に配置 */}
-        <SearchBar onSearch={handleSearch} />
+        {/* 検索バーとエラーメッセージのラッパー */}
+        <div style={{
+            position: 'absolute',
+            top: '10px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1001,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '5px' // 検索バーとエラー間の隙間
+        }}>
+            {/* 検索バー */}
+            <SearchBar
+                query={searchQuery}
+                setQuery={setSearchQuery}
+                onSearch={handleSearch}
+            />
+
+            {/* エラーメッセージ */}
+            {error && (
+              <div style={{
+                backgroundColor: 'rgba(255, 0, 0, 0.8)', color: 'white', padding: '10px 15px',
+                borderRadius: '5px',
+                maxWidth: '400px',
+                textAlign: 'left', // 左揃えに変更
+                boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+                display: 'flex', // アイコンとテキストを横に並べる
+                alignItems: 'center',
+                gap: '8px' // アイコンとテキストの隙間
+              }}>
+                <BiErrorAlt size={20} />
+                <span>{error}</span>
+              </div>
+            )}
+        </div>
+
 
         <Map
           ref={mapRef}
@@ -1041,32 +1084,12 @@ function MapDashboard() {
                   />
               )}
           </div>
-
-          {/* 3. Pitch */}
-          <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
-              <button
-                  onClick={handlePitchUp}
-                  style={(currentPitch >= 60) ? {...disabledControlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'} : {...controlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'}}
-                  title="Increase pitch"
-                  disabled={currentPitch >= 60}
-              >
-                  <LuChevronUp size={18} />
-              </button>
-              <button
-                  onClick={handlePitchDown}
-                  style={(currentPitch <= 0) ? {...disabledControlButtonStyle, borderRadius: '0 0 4px 4px'} : {...controlButtonStyle, borderRadius: '0 0 4px 4px'}}
-                  title="Decrease pitch"
-                  disabled={currentPitch <= 0}
-              >
-                  <LuChevronDown size={18} />
-              </button>
-          </div>
         </div>
 
         {/* --- Bottom Right UI Group --- */}
         <div style={{
             position: 'absolute',
-            bottom: '35px',
+            bottom: '40px', // クレジットとのマージン
             right: '10px',
             zIndex: 1,
             display: 'flex',
@@ -1077,20 +1100,40 @@ function MapDashboard() {
             {/* 1. Legend */}
             <LegendControl />
 
-            {/* 2. Coords + Zoom Group */}
+            {/* 2. Pitch */}
+            <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
+                <button
+                    onClick={handlePitchUp}
+                    style={(currentPitch >= 60) ? {...disabledControlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'} : {...controlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'}}
+                    title="Increase pitch"
+                    disabled={currentPitch >= 60}
+                >
+                    <VscTriangleUp size={20} />
+                </button>
+                <button
+                    onClick={handlePitchDown}
+                    style={(currentPitch <= 0) ? {...disabledControlButtonStyle, borderRadius: '0 0 4px 4px'} : {...controlButtonStyle, borderRadius: '0 0 4px 4px'}}
+                    title="Decrease pitch"
+                    disabled={currentPitch <= 0}
+                >
+                    <VscTriangleDown size={20} />
+                </button>
+            </div>
+
+            {/* 3. Coords + Zoom Group */}
             <div style={{
                 display: 'flex',
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: '8px'
             }}>
-                {/* 2a. Coordinates */}
+                {/* 3a. Coordinates */}
                 <CursorCoordinates coords={cursorCoords} />
 
-                {/* 2b. Zoom Controls */}
+                {/* 3b. Zoom Controls */}
                 <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
                     <button onClick={handleZoomIn} style={{...controlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'}} title="Zoom in">
-                        <LuPlus size={18} />
+                        <LuPlus size={20} />
                     </button>
                     <div style={{
                         ...controlButtonStyle,
@@ -1104,7 +1147,7 @@ function MapDashboard() {
                         {viewState.zoom?.toFixed(0)}
                     </div>
                     <button onClick={handleZoomOut} style={{...controlButtonStyle, borderRadius: '0 0 4px 4px'}} title="Zoom out">
-                        <LuMinus size={18} />
+                        <LuMinus size={20} />
                     </button>
                 </div>
             </div>
