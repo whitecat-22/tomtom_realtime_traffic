@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-// import DeckGL from '@deck-gl/react'; // DeckGL を無効化
-// import { IconLayer } from '@deck-gl/layers'; // IconLayer を無効化
-import { Map, MapRef, ViewState, ScaleControl, Popup } from 'react-map-gl/maplibre'; // Popup をインポート
+// import DeckGL from '@deck-gl/react'; // DeckGL は不要
+// import { IconLayer } from '@deck-gl/layers'; // IconLayer は不要
+import { Map, MapRef, ViewState, ScaleControl, Popup } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-// import { api } from './api'; // api.ts のインポートは不要に
-// import { useInterval } from './useInterval'; // useInterval も不要に
+// import { api } from './api'; // api.ts は不要
+// import { useInterval } from './useInterval'; // useInterval は不要
 
 // --- 【修正】初期視点を環境変数から読み込む ---
 const INITIAL_VIEW_STATE = {
@@ -28,7 +28,7 @@ const legendData = [
   { speed: '50-60', color: '#1a9850' },
   { speed: '60-70', color: '#26c6da' },
   { speed: '70-80', color: '#007bfa' },
-  { speed: '80-', color: '#004CB0' },
+  { speed: '80-',   color: '#004CB0' },
 ];
 
 // --- 凡例コンポーネント ---
@@ -91,12 +91,10 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
   return (
     <div style={{
       position: 'absolute',
-      top: '10px',
+      bottom: '280px',
       right: '10px',
       zIndex: 1,
     }}
-      // onMouseEnter={() => setIsMenuOpen(true)}
-      // onMouseLeave={() => setIsMenuOpen(false)}
     >
       <button
         onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -142,127 +140,336 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
   );
 };
 
+// --- 【追加】レイヤー切り替えコンポーネント ---
+interface LayerSwitcherProps {
+  isFlowVisible: boolean;
+  onToggleFlow: () => void;
+  isIncidentsVisible: boolean;
+  onToggleIncidents: () => void;
+}
+
+const LayerSwitcher: React.FC<LayerSwitcherProps> = ({
+  isFlowVisible, onToggleFlow, isIncidentsVisible, onToggleIncidents
+}) => (
+  <div style={{
+    position: 'absolute',
+    top: '10px', // BaseMapSwitcher の下に配置
+    right: '10px',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    padding: '8px',
+    borderRadius: '5px',
+    zIndex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    fontFamily: 'sans-serif',
+    fontSize: '12px',
+  }}>
+    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+      <input
+        type="checkbox"
+        checked={isFlowVisible}
+        onChange={onToggleFlow}
+        style={{ marginRight: '5px', accentColor: 'black' }}
+      />
+      Traffic Flow
+    </label>
+    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginTop: '5px' }}>
+      <input
+        type="checkbox"
+        checked={isIncidentsVisible}
+        onChange={onToggleIncidents}
+        style={{ marginRight: '5px', accentColor: 'black' }}
+      />
+      Traffic Incidents
+    </label>
+  </div>
+);
+
 
 // --- メインコンポーネント ---
 function MapDashboard() {
   const [viewState, setViewState] = useState<Partial<ViewState>>(INITIAL_VIEW_STATE);
-  const [error, setError] = useState<string | null>(null); // エラー表示用
+  const [error, setError] = useState<string | null>(null);
   const mapRef = useRef<MapRef>(null);
   const [currentMapStyleKey, setCurrentMapStyleKey] = useState<BaseMapStyleKey>("positron");
-  const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number; feature: any } | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number; content: string } | null>(null);
   const [popupInfo, setPopupInfo] = useState<{ longitude: number; latitude: number; content: string } | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const [tooltipContent, setTooltipContent] = useState<string>('');
 
+  const [isFlowVisible, setIsFlowVisible] = useState(true);
+  const [isIncidentsVisible, setIsIncidentsVisible] = useState(true);
 
   const mapStyleUrl = baseMapUrls[currentMapStyleKey];
 
   const handleMapMove = useCallback((e: any) => {
-     if (e.viewState) { setViewState(e.viewState); }
+      if (e.viewState) { setViewState(e.viewState); }
   }, []);
 
   const handleMapIdle = useCallback(() => {
-    // BBox や Zoom の更新は不要になった (Incident取得しないため)
+    //
   }, []);
 
   const handleMapLoad = useCallback(() => {
-     console.log('Map loaded via Map onLoad');
-     // BBox の初期設定も不要になった
-  }, []);
+      console.log('Map loaded via Map onLoad');
+      // マップロード時にレイヤーの初期表示状態をセット
+      const map = mapRef.current?.getMap();
+      if (!map) return;
 
-   // --- Popupの内容を整形する関数 ---
-   const formatPopupContent = (properties: any): string => {
-       if (!properties) return "No data";
-       // tags パラメータで取得した想定のプロパティ
-       const roadType = properties.road_type !== undefined ? `Road Type: ${properties.road_type}` : "";
-       const trafficLevel = properties.traffic_level !== undefined ? `Speed: ${properties.traffic_level} km/h` : "Speed: N/A";
-       const coverage = properties.traffic_road_coverage !== undefined ? `Coverage: ${properties.traffic_road_coverage}` : "";
-       const leftHand = properties.left_hand_traffic !== undefined ? `Left Hand Traffic: ${properties.left_hand_traffic}` : "";
-       const closure = properties.road_closure !== undefined ? `Closure: ${properties.road_closure}` : "";
-       const category = properties.road_category !== undefined ? `Category: ${properties.road_category}` : "";
-       const subcategory = properties.road_subcategory !== undefined ? `Subcategory: ${properties.road_subcategory}` : "";
+      const setInitialVisibility = () => {
+        try {
+            if (map.getLayer('tomtom-traffic-layer')) {
+                map.setLayoutProperty('tomtom-traffic-layer', 'visibility', isFlowVisible ? 'visible' : 'none');
+            }
+            if (map.getLayer('tomtom-traffic-incident-layer')) {
+                map.setLayoutProperty('tomtom-traffic-incident-layer', 'visibility', isIncidentsVisible ? 'visible' : 'none');
+            }
+        } catch (error) {
+            console.error("Error setting initial layer visibility (style might be changing):", error);
+        }
+      };
 
-       // 表示する情報を整形
-       const lines = [
-           trafficLevel,
-           coverage,
-           roadType,
-           `${category} ${subcategory}`.trim(),
-           closure,
-           leftHand
-       ].filter(line => line && !line.includes('undefined') && !line.includes('N/A') && !line.endsWith(':') && line.trim() !== ''); // 空白のみの行も除外
+      if (map.isStyleLoaded()) {
+        setInitialVisibility();
+      } else {
+        map.once('styledata', setInitialVisibility);
+      }
 
-        // lines 配列が空の場合のメッセージ
-       if (lines.length === 0) return `<div style="font-family: sans-serif; font-size: 12px;">No detailed info available</div>`;
+  }, [isFlowVisible, isIncidentsVisible]);
 
-       return `
-        <div style="font-family: sans-serif; font-size: 12px; max-width: 250px;">
-            <strong>Traffic Info</strong><br/>
-            ${lines.join('<br/>')}
-        </div>
-       `;
-   };
+  // --- Popup/Tooltipの内容を整形する関数 ---
+  // 交通流 (Flow) 用
+  const formatFlowContent = (properties: any): string => {
+    // --- スタイルとアイコン定義 (Flow) ---
+    const style = 'style="font-family: sans-serif; font-size: 12px; max-width: 250px; background-color: rgba(0,0,0,0.7); color: white; padding: 5px 8px; border-radius: 3px;"';
+    // Google Fonts 'Directions Car' icon (white fill)
+    const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 0 24 24" width="18px" fill="#FFFFFF" style="vertical-align: middle; margin-right: 5px;"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5s1.5.67 1.5 1.5s-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`;
+    const title = `<strong style="font-size: 14px; display: flex; align-items: center; margin-bottom: 5px;">${iconSvg} Traffic Flow</strong>`;
+
+    if (!properties) return `<div ${style}>${title}<br/>(No data)</div>`;
+
+    // --- 動的ロジック ---
+    const internalKeys = new Set(['$type', 'layer', 'source', 'sourceLayer', 'state', 'tile']);
+    const lines: string[] = [];
+    for (const key in properties) {
+        if (Object.prototype.hasOwnProperty.call(properties, key) && !internalKeys.has(key)) {
+            const value = properties[key];
+            if (value !== undefined && value !== null) {
+                const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+
+                // traffic_level の場合に ' km/h' を付記
+                let displayValue = String(value);
+                if (key === 'traffic_level') {
+                    displayValue += ' km/h';
+                }
+
+                lines.push(`<span style="overflow-wrap: break-word;"><strong>${formattedKey}:</strong> ${displayValue}</span>`);
+            }
+        }
+    }
+    lines.sort();
+
+    const content = (lines.length === 0)
+        ? "(No detailed info available)"
+        : `<div style="display: flex; flex-direction: column; gap: 4px;">${lines.join('')}</div>`;
+
+    return `<div ${style}>${title}${content}</div>`;
+  };
+
+  // --- ISO 8601 形式の日付を 'YYYY-MM-DD HH:mm:ss UTC' に変換するヘルパー関数 ---
+  const formatDateUTC = (isoString: string): string => {
+    try {
+        const date = new Date(isoString);
+        // 無効な日付の場合は元の文字列を返す
+        if (isNaN(date.getTime())) {
+            return isoString;
+        }
+
+        // UTCコンポーネントを取得
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0'); // 月は0-indexed
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const hours = String(date.getUTCHours()).padStart(2, '0');
+        const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
+    } catch (e) {
+        return isoString; // エラー時も元の文字列を返す
+    }
+  };
+
+  // インシデント (Incident) 用
+  const formatIncidentContent = (properties: any): string => {
+    // --- スタイルとアイコン定義 (Incident) ---
+    const style = 'style="font-family: sans-serif; font-size: 12px; max-width: 250px; background-color: #FFF9C4; color: black; padding: 5px 8px; border-radius: 3px; border: 1px solid #E0E0E0;"';
+    // Google Fonts 'Warning' icon (black fill)
+    const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 0 24 24" width="18px" fill="#000000" style="vertical-align: middle; margin-right: 5px;"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>`;
+    const title = `<strong style="font-size: 14px; display: flex; align-items: center; margin-bottom: 5px;">${iconSvg} Traffic Incident</strong>`;
+
+    if (!properties) return `<div ${style}>${title}<br/>(No data)</div>`;
+
+    // --- Icon Category の定義マップ ---
+    const iconCategoryMap: { [key: number]: string } = {
+        0: 'Unknown',
+        1: 'Accident',
+        2: 'Fog',
+        3: 'Dangerous Conditions',
+        4: 'Rain',
+        5: 'Ice',
+        6: 'Jam',
+        7: 'Lane Closed',
+        8: 'Road Closed',
+        9: 'Road Works',
+        10: 'Wind',
+        11: 'Flooding',
+        14: 'Broken Down Vehicle'
+    };
+    // --- 動的ロジック ---
+    const internalKeys = new Set(['$type', 'layer', 'source', 'sourceLayer', 'state', 'tile']);
+    // 日付としてフォーマットするキーのリスト
+    const dateKeys = new Set(['end_date', 'last_report_time']);
+
+    const lines: string[] = [];
+    for (const key in properties) {
+        if (Object.prototype.hasOwnProperty.call(properties, key) && !internalKeys.has(key)) {
+            const value = properties[key];
+            if (value !== undefined && value !== null) {
+                const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+
+                let displayValue = String(value);
+
+                if (key === 'delay') {
+                    // 1. delay に 's' を付記
+                    displayValue = `${String(value)} s`;
+
+                } else if (key === 'magnitude') {
+                    // 2. magnitude に意味を付記
+                    let magnitudeText = 'Unknown'; // 0 またはリスト外の場合
+                    switch (Number(value)) {
+                        case 1: magnitudeText = 'Minor'; break;
+                        case 2: magnitudeText = 'Moderate'; break;
+                        case 3: magnitudeText = 'Major'; break;
+                        case 4: magnitudeText = 'Indefinite (road closures and other delays with an unstated length of time)'; break;
+                    }
+                    displayValue = `${String(value)}. ${magnitudeText}`;
+
+                // --- icon_category_X のロジックをここに追加 ---
+                } else if (key.startsWith('icon_category')) {
+                    const numericValue = Number(value);
+                    const description = iconCategoryMap[numericValue]; // マップから説明を取得
+
+                    if (description !== undefined) {
+                        displayValue = `${String(value)}. ${description}`; // "7 (Lane Closed)"
+                    } else {
+                        displayValue = `${String(value)}. Other`; // マップにない場合
+                    }
+
+                } else if (dateKeys.has(key) && typeof value === 'string' && value.endsWith('Z')) {
+                    // (既存の日付フォーマット処理)
+                    displayValue = formatDateUTC(value);
+                }
+
+                lines.push(`<span style="overflow-wrap: break-word;"><strong>${formattedKey}:</strong> ${displayValue}</span>`);
+            }
+        }
+    }
+    lines.sort();
+
+    const content = (lines.length === 0)
+        ? "(No detailed info available)"
+        : `<div style="display: flex; flex-direction: column; gap: 4px;">${lines.join('')}</div>`;
+
+    return `<div ${style}>${title}${content}</div>`;
+  };
 
   // --- マウスホバー時の処理 ---
   const handleMouseMove = useCallback((event: maplibregl.MapLayerMouseEvent) => {
     const { features, point } = event;
-    const hoveredFeature = features && features.find(f => f.layer.id === 'tomtom-traffic-layer');
+    const flowFeature = features && features.find(f => f.layer.id === 'tomtom-traffic-layer');
+    const incidentFeature = features && features.find(f =>
+        // f.layer.id === 'tomtom-traffic-incident-point-layer' ||
+        f.layer.id === 'tomtom-traffic-incident-layer-outline' ||
+        f.layer.id === 'tomtom-traffic-incident-layer-dash'
+    );
 
-    if (mapRef.current) { mapRef.current.getMap().getCanvas().style.cursor = hoveredFeature ? 'pointer' : ''; }
+    const map = mapRef.current?.getMap();
+    if (map) map.getCanvas().style.cursor = (flowFeature || incidentFeature) ? 'pointer' : '';
 
-    if (hoveredFeature) {
-      setHoverInfo({ x: point.x, y: point.y, feature: hoveredFeature });
-      setPopupInfo(null); // クリックPopupは閉じる
+    let content = "";
+    if (incidentFeature) { // インシデントを優先
+      content = formatIncidentContent(incidentFeature.properties);
+    } else if (flowFeature) { // 次に交通流
+      content = formatFlowContent(flowFeature.properties);
+    }
+
+    if (content) {
+      setHoverInfo({ x: point.x, y: point.y, feature: incidentFeature || flowFeature });
+      setTooltipContent(content);
+      setPopupInfo(null);
     } else {
       setHoverInfo(null);
     }
-  }, []);
+  }, []); // 依存配列は空
 
-   // --- クリック時の処理 ---
-   const handleClick = useCallback((event: maplibregl.MapLayerMouseEvent) => {
+  // --- クリック時の処理 ---
+  const handleClick = useCallback((event: maplibregl.MapLayerMouseEvent) => {
     const { features, lngLat } = event;
-    const clickedFeature = features && features.find(f => f.layer.id === 'tomtom-traffic-layer');
+    const flowFeature = features && features.find(f => f.layer.id === 'tomtom-traffic-layer');
+    // 3つのレイヤーIDのいずれかに一致するかをチェック
+    const incidentFeature = features && features.find(f =>
+        // f.layer.id === 'tomtom-traffic-incident-point-layer' ||
+        f.layer.id === 'tomtom-traffic-incident-layer-outline' ||
+        f.layer.id === 'tomtom-traffic-incident-layer-dash'
+    );
 
-    if (clickedFeature) {
-        setHoverInfo(null); // ホバーツールチップは閉じる
+    let featureToShow = null;
+    let content = "";
+
+    if (incidentFeature) {
+        featureToShow = incidentFeature;
+        content = formatIncidentContent(featureToShow.properties);
+    } else if (flowFeature) {
+        featureToShow = flowFeature;
+        content = formatFlowContent(featureToShow.properties);
+    }
+
+    if (featureToShow) {
+        setHoverInfo(null);
         setPopupInfo({
             longitude: lngLat.lng,
             latitude: lngLat.lat,
-            content: formatPopupContent(clickedFeature.properties)
+            content: content
         });
     } else {
-        setPopupInfo(null); // 地図の何もないところをクリックしたら閉じる
+        setPopupInfo(null);
     }
-   }, []);
+  }, []); // 依存配列は空
 
-   // --- ツールチップの位置調整ロジック ---
-   useEffect(() => {
-        if (tooltipRef.current && hoverInfo) {
+  // --- ツールチップの位置調整ロジック ---
+  useEffect(() => {
+        if (tooltipRef.current && hoverInfo && tooltipContent) {
             const tooltipElement = tooltipRef.current;
             const rect = tooltipElement.getBoundingClientRect();
             const tooltipHeight = rect.height;
             const tooltipWidth = rect.width;
-
             const tooltipOffset = 15;
-
             const windowHeight = window.innerHeight;
             const windowWidth = window.innerWidth;
+            const bottomMargin = 50;
+            const rightMargin = 10;
 
             let finalTop = hoverInfo.y + tooltipOffset;
             let finalLeft = hoverInfo.x + tooltipOffset;
 
-            const bottomMargin = 40;
             if (finalTop + tooltipHeight > windowHeight - bottomMargin) {
                 finalTop = hoverInfo.y - tooltipHeight - tooltipOffset;
             }
-            if (finalLeft + tooltipWidth > windowWidth) {
+            if (finalLeft + tooltipWidth > windowWidth - rightMargin) {
                 finalLeft = hoverInfo.x - tooltipWidth - tooltipOffset;
             }
-            if (finalTop < 0) {
-                finalTop = tooltipOffset;
-            }
-            if (finalLeft < 0) {
-                finalLeft = tooltipOffset;
-            }
+            if (finalTop < 0) { finalTop = tooltipOffset; }
+            if (finalLeft < 0) { finalLeft = tooltipOffset; }
 
             tooltipElement.style.top = `${finalTop}px`;
             tooltipElement.style.left = `${finalLeft}px`;
@@ -270,35 +477,60 @@ function MapDashboard() {
         } else if (tooltipRef.current) {
             tooltipRef.current.style.visibility = 'hidden';
         }
-    }, [hoverInfo]);
+  }, [hoverInfo, tooltipContent]);
 
-   // --- ホバー用ツールチップ ---
-   const renderTooltip = () => {
-        if (!hoverInfo || !hoverInfo.feature) return null;
-        const content = formatPopupContent(hoverInfo.feature.properties);
+  // --- ホバー用ツールチップ ---
+  const renderTooltip = () => {
+        if (!hoverInfo || !tooltipContent) return null;
 
+        // 【修正】 ツールチップのコンテナからは背景色やパディングを削除
+        // スタイルは format 関数が返すHTMLにすべて含まれる
         const tooltipStyle: React.CSSProperties = {
             position: 'absolute',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            color: 'white',
-            padding: '5px 8px',
-            borderRadius: '3px',
-            fontSize: '11px',
-            fontFamily: 'sans-serif',
             zIndex: 1002,
             pointerEvents: 'none',
-            whiteSpace: 'pre-line',
-            maxWidth: '300px',
             transformOrigin: 'top left',
-            visibility: 'hidden', // 初期状態は非表示
+            visibility: 'hidden',
         };
 
         return (
             <div ref={tooltipRef} style={tooltipStyle}
-             dangerouslySetInnerHTML={{ __html: content }}
-             />
+              dangerouslySetInnerHTML={{ __html: tooltipContent }}
+            />
         );
-   };
+  };
+
+  // --- レイヤー表示切り替えロジック ---
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map || !map.isStyleLoaded()) {
+        return;
+    }
+
+    try {
+        if (map.getLayer('tomtom-traffic-layer')) {
+            map.setLayoutProperty('tomtom-traffic-layer', 'visibility', isFlowVisible ? 'visible' : 'none');
+        }
+
+        // --- インシデントレイヤーIDの配列 ---
+        const incidentLayerIds = [
+            // 'tomtom-traffic-incident-point-layer',
+            'tomtom-traffic-incident-layer-outline',
+            'tomtom-traffic-incident-layer-dash'
+        ];
+
+        // 3つのレイヤーすべてをトグルする
+        incidentLayerIds.forEach(layerId => {
+            if (map.getLayer(layerId)) {
+                map.setLayoutProperty(layerId, 'visibility', isIncidentsVisible ? 'visible' : 'none');
+            }
+        });
+
+    } catch (error) {
+        console.error("Error setting layer visibility (style might be changing):", error);
+    }
+  }, [isFlowVisible, isIncidentsVisible, currentMapStyleKey]); // マップスタイル切り替え時にも実行
+
 
   // --- レンダリング ---
   return (
@@ -311,9 +543,8 @@ function MapDashboard() {
         }}>
           {error}
         </div>
-       )}
+      )}
 
-      {/* MapLibre ベース地図 */}
       <Map
         ref={mapRef}
         {...viewState}
@@ -324,13 +555,18 @@ function MapDashboard() {
         initialViewState={INITIAL_VIEW_STATE}
         onLoad={handleMapLoad}
         attributionControl={true}
-        interactiveLayerIds={['tomtom-traffic-layer']}
+        //  3つのインシデントレイヤーIDすべてをインタラクティブ対象にする
+        interactiveLayerIds={[
+            'tomtom-traffic-layer', // 交通流
+            // 'tomtom-traffic-incident-point-layer', // インシデント (Point)
+            'tomtom-traffic-incident-layer-outline', // インシデント (Line 外枠)
+            'tomtom-traffic-incident-layer-dash' // インシデント (Line 中心)
+        ]}
         onMouseMove={handleMouseMove}
         onClick={handleClick}
       >
           <ScaleControl unit="metric" position="bottom-left" />
 
-          {/* クリック時のPopup (Mapの子要素として配置) */}
           {popupInfo && (
               <Popup
                   longitude={popupInfo.longitude}
@@ -338,22 +574,26 @@ function MapDashboard() {
                   closeButton={true}
                   closeOnClick={false}
                   onClose={() => setPopupInfo(null)}
-                  anchor="bottom" // 下から吹き出しが出るように
+                  anchor="bottom"
                   style={{ maxHeight: '200px', overflowY: 'auto' }}
               >
-                 <div dangerouslySetInnerHTML={{ __html: popupInfo.content }} />
+                <div dangerouslySetInnerHTML={{ __html: popupInfo.content }} />
               </Popup>
           )}
       </Map>
 
-      {/* ホバー用ツールチップをレンダリング */}
       {renderTooltip()}
-
       <Legend />
       <BaseMapSwitcher currentStyle={currentMapStyleKey} onChangeStyle={setCurrentMapStyleKey} />
+      {/* 【追加】レイヤー切り替えUI */}
+      <LayerSwitcher
+        isFlowVisible={isFlowVisible}
+        onToggleFlow={() => setIsFlowVisible(!isFlowVisible)}
+        isIncidentsVisible={isIncidentsVisible}
+        onToggleIncidents={() => setIsIncidentsVisible(!isIncidentsVisible)}
+      />
     </div>
   );
 }
 
 export default MapDashboard;
-
