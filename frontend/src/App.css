@@ -42,3 +42,32 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
+/*
+ * react-map-gl (maplibre) の
+ * クリックポップアップのデフォルトスタイルをリセットする
+ */
+.maplibregl-popup-content-reset {
+  /* 白い背景とパディングを削除 */
+  background: none;
+  padding: 0;
+  box-shadow: none;
+  /* 矢印 (tip) を非表示 */
+}
+.maplibregl-popup-content-reset .maplibregl-popup-tip {
+  display: none;
+}
+/* 「×」ボタンのスタイルをダークテーマに合わせる (オプション) */
+.maplibregl-popup-content-reset .maplibregl-popup-close-button {
+  color: white;
+  background-color: rgba(0,0,0,0.5);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 18px;
+  line-height: 20px;
+  text-align: center;
+  margin: 5px;
+}
+.maplibregl-popup-content-reset .maplibregl-popup-close-button:hover {
+  background-color: rgba(0,0,0,0.8);
+}

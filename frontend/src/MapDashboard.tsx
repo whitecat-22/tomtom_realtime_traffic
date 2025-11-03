@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Map, MapRef, ViewState, ScaleControl, Popup } from 'react-map-gl/maplibre';
+import { Map, MapRef, ViewState, ScaleControl } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // --- react-icons のインポート ---
 import {
@@ -11,7 +11,7 @@ import {
 // ピン留め用アイコン
 import { BsPinFill, BsPinAngle } from "react-icons/bs";
 import { VscTriangleUp, VscTriangleDown } from "react-icons/vsc";
-import { FaSearchLocation, FaGlobeAmericas } from "react-icons/fa";
+import { FaSearchLocation, FaGlobeAmericas, FaWindowClose } from "react-icons/fa";
 import { FaCar } from 'react-icons/fa6';
 import { GiHorizonRoad } from "react-icons/gi";
 import { BiErrorAlt } from "react-icons/bi";
@@ -521,9 +521,10 @@ function MapDashboard() {
   const mapRef = useRef<MapRef>(null);
   const [currentMapStyleKey, setCurrentMapStyleKey] = useState<BaseMapStyleKey>("positron");
   const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number } | null>(null);
-  const [popupInfo, setPopupInfo] = useState<{ longitude: number; latitude: number; content: React.ReactNode } | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [tooltipContent, setTooltipContent] = useState<React.ReactNode>(null);
+  // クリックポップアップをピン留めする state
+  const [isClickTooltipPinned, setIsClickTooltipPinned] = useState(false);
 
   const [isFlowVisible, setIsFlowVisible] = useState(true);
   const [isIncidentsVisible, setIsIncidentsVisible] = useState(true);
@@ -584,10 +585,15 @@ function MapDashboard() {
 
   }, [isFlowVisible, isIncidentsVisible]);
 
-  // --- Popup/Tooltipの内容を整形する関数 (JSX) ---
+  // --- Popup/Tooltipの内容を整形する関数 (isPinned と onClose を追加) ---
   // 交通流 (Flow) 用
-  const formatFlowContent = (properties: any): React.ReactNode => {
-    const style: React.CSSProperties = { fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px', backgroundColor: 'rgba(0,0,0,0.7)', color: 'white', padding: '5px 8px', borderRadius: '3px' };
+  const formatFlowContent = (properties: any, isPinned: boolean, onClose: () => void): React.ReactNode => {
+    const style: React.CSSProperties = {
+      fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px',
+      backgroundColor: 'rgba(0,0,0,0.7)', color: 'white',
+      padding: '5px 8px', borderRadius: '3px',
+      position: 'relative', // 閉じるボタンの配置基準
+    };
     const title = (
         <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
             <FaCar size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Traffic Flow
@@ -614,10 +620,29 @@ function MapDashboard() {
             }
         }
     }
+
     const content = (lines.length === 0)
         ? "(No detailed info available)"
         : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>{lines}</div>;
-    return <div style={style}>{title}{content}</div>;
+
+    // 閉じるボタン
+    const closeButton = isPinned && (
+        <FaWindowClose
+            size={16}
+            onClick={(e) => { e.stopPropagation(); onClose(); }} // イベント伝播を停止
+            style={{
+                position: 'absolute',
+                top: '5px',
+                right: '5px',
+                cursor: 'pointer',
+                color: 'white'
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.8)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.5)')}
+        />
+    );
+
+    return <div style={style}>{closeButton}{title}{content}</div>;
   };
 
   // --- 日付フォーマット用ヘルパー関数 ---
@@ -639,9 +664,14 @@ function MapDashboard() {
     }
   };
 
-  // インシデント (Incident) 用
-  const formatIncidentContent = (properties: any): React.ReactNode => {
-    const style: React.CSSProperties = { fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px', backgroundColor: 'rgba(255,249,196,0.9)', color: 'black', padding: '5px 8px', borderRadius: '3px', border: '1px solid #E0E0E0' };
+  // インシデント (Incident) 用 (isPinned と onClose を追加)
+  const formatIncidentContent = (properties: any, isPinned: boolean, onClose: () => void): React.ReactNode => {
+    const style: React.CSSProperties = {
+      fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px',
+      backgroundColor: 'rgba(255,249,196,0.9)', color: 'black',
+      padding: '5px 8px', borderRadius: '3px', border: '1px solid #E0E0E0',
+      position: 'relative', // 閉じるボタンの配置基準
+    };
     const title = (
         <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
             <LuTriangleAlert size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Traffic Incident
@@ -707,15 +737,39 @@ function MapDashboard() {
             }
         }
     }
+
     const content = (lines.length === 0)
         ? "(No detailed info available)"
         : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>{lines}</div>;
-    return <div style={style}>{title}{content}</div>;
+
+    // 閉じるボタン
+    const closeButton = isPinned && (
+        <FaWindowClose
+            size={16}
+            onClick={(e) => { e.stopPropagation(); onClose(); }} // イベント伝播を停止
+            style={{
+                position: 'absolute',
+                top: '5px',
+                right: '5px',
+                cursor: 'pointer',
+                color: 'black' // 黄色い背景用
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.2)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.1)')}
+        />
+    );
+
+    return <div style={style}>{closeButton}{title}{content}</div>;
   };
 
 
   // --- マウスホバー時の処理 ---
   const handleMouseMove = useCallback((event: maplibregl.MapLayerMouseEvent) => {
+    // クリックでピン留め中はホバー処理を中断
+    if (isClickTooltipPinned) {
+      return;
+    }
+
     // カーソル座標を更新
     setCursorCoords(event.lngLat);
 
@@ -730,21 +784,22 @@ function MapDashboard() {
     if (map) map.getCanvas().style.cursor = (flowFeature || incidentFeature) ? 'pointer' : '';
 
     let content: React.ReactNode = null;
+    // isPinned: false を渡す
+    const dummyOnClose = () => {};
     if (incidentFeature) {
-      content = formatIncidentContent(incidentFeature.properties);
+      content = formatIncidentContent(incidentFeature.properties, false, dummyOnClose);
     } else if (flowFeature) {
-      content = formatFlowContent(flowFeature.properties);
+      content = formatFlowContent(flowFeature.properties, false, dummyOnClose);
     }
 
     if (content) {
       setHoverInfo({ x: point.x, y: point.y });
       setTooltipContent(content);
-      setPopupInfo(null);
     } else {
       setHoverInfo(null);
       setTooltipContent(null);
     }
-  }, []);
+  }, [isClickTooltipPinned]); // isClickTooltipPinned を依存配列に追加
 
   // --- 地図からマウスが離れた時の処理 ---
   const handleMouseOut = useCallback(() => {
@@ -753,7 +808,13 @@ function MapDashboard() {
 
   // --- クリック時の処理 ---
   const handleClick = useCallback((event: maplibregl.MapLayerMouseEvent) => {
-    const { features, lngLat } = event;
+    // ツールチップを閉じるための関数
+    const handleCloseTooltip = () => {
+      setIsClickTooltipPinned(false);
+      setTooltipContent(null);
+    };
+
+    const { features, lngLat, point } = event;
     const flowFeature = features && features.find(f => f.layer.id === 'tomtom-traffic-layer');
     const incidentFeature = features && features.find(f =>
         f.layer.id === 'tomtom-traffic-incident-layer-outline' ||
@@ -765,24 +826,24 @@ function MapDashboard() {
 
     if (incidentFeature) {
         featureToShow = incidentFeature;
-        content = formatIncidentContent(featureToShow.properties);
+        // isPinned: true と handleCloseTooltip を渡す
+        content = formatIncidentContent(featureToShow.properties, true, handleCloseTooltip);
     } else if (flowFeature) {
         featureToShow = flowFeature;
-        content = formatFlowContent(featureToShow.properties);
+        // isPinned: true と handleCloseTooltip を渡す
+        content = formatFlowContent(featureToShow.properties, true, handleCloseTooltip);
     }
 
     if (featureToShow) {
-        setHoverInfo(null);
-        setTooltipContent(null);
-        setPopupInfo({
-            longitude: lngLat.lng,
-            latitude: lngLat.lat,
-            content: content
-        });
+        setHoverInfo({ x: point.x, y: point.y }); // マウスカーソル位置を記憶
+        setTooltipContent(content); // ツールチップの内容をセット
+        setIsClickTooltipPinned(true); // ピン留め状態にする
     } else {
-        setPopupInfo(null);
+        // 何もない場所をクリックしたら、ピン留めを解除
+        setIsClickTooltipPinned(false);
+        setTooltipContent(null);
     }
-  }, []);
+  }, []); // 依存配列は空
 
   // --- エラー表示の5秒タイマー ---
   useEffect(() => {
@@ -803,60 +864,55 @@ function MapDashboard() {
             const mapWrapper = tooltipElement.parentElement; // マップラッパー
             if (!mapWrapper) return;
 
-            const tooltipRect = tooltipElement.getBoundingClientRect();
-            const tooltipHeight = tooltipRect.height;
-            const tooltipWidth = tooltipRect.width;
-            const tooltipOffset = 15;
+            // ツールチップの矩形サイズを次回描画後に取得
+            // (クリック時に内容が変わるとサイズも変わるため)
+            requestAnimationFrame(() => {
+              const tooltipRect = tooltipElement.getBoundingClientRect();
+              const tooltipHeight = tooltipRect.height;
+              const tooltipWidth = tooltipRect.width;
+              const tooltipOffset = 15;
 
-            // マップラッパーのサイズとウィンドウ内での位置を取得
-            const wrapperRect = mapWrapper.getBoundingClientRect();
+              // マップラッパーのサイズとウィンドウ内での位置を取得
+              const wrapperRect = mapWrapper.getBoundingClientRect();
 
-            // hoverInfo.x/y はマップラッパーの左上隅からの相対座標
-            // finalTop/Left もマップラッパーの左上隅からの相対座標
+              let finalTop = hoverInfo.y + tooltipOffset;
+              let finalLeft = hoverInfo.x + tooltipOffset;
 
-            let finalTop = hoverInfo.y + tooltipOffset;
-            let finalLeft = hoverInfo.x + tooltipOffset;
+              // --- 垂直方向（上下）のチェック ---
+              if (finalTop + tooltipHeight > wrapperRect.height - 30) {
+                  finalTop = hoverInfo.y - tooltipHeight - tooltipOffset;
+              }
+              if (finalTop < 10) {
+                  finalTop = 10;
+              }
 
-            // --- 垂直方向（上下）のチェック ---
-            // ツールチップの下端がラッパーの下端を超えるか？
-            if (finalTop + tooltipHeight > wrapperRect.height - 30) { // 30pxマージン (attribution)
-                // 超えるなら、カーソルの上に表示
-                finalTop = hoverInfo.y - tooltipHeight - tooltipOffset;
-            }
-            // ツールチップの上端がラッパーの上端を超えるか？（カーソルの上に表示した場合）
-            if (finalTop < 10) { // 10pxマージン
-                // 超えるなら、上端に固定
-                finalTop = 10;
-            }
+              // --- 水平方向（左右）のチェック ---
+              if (finalLeft + tooltipWidth > wrapperRect.width - 10) {
+                  finalLeft = hoverInfo.x - tooltipWidth - tooltipOffset;
+              }
+              if (finalLeft < 10) {
+                  finalLeft = 10;
+              }
 
-            // --- 水平方向（左右）のチェック ---
-            // ツールチップの右端がラッパーの右端を超えるか？
-            if (finalLeft + tooltipWidth > wrapperRect.width - 10) { // 10pxマージン (UI)
-                // 超えるなら、カーソルの左に表示
-                finalLeft = hoverInfo.x - tooltipWidth - tooltipOffset;
-            }
-            // ツールチップの左端がラッパーの左端を超えるか？
-            if (finalLeft < 10) { // 10pxマージン
-                // 超えるなら、左端に固定
-                finalLeft = 10;
-            }
+              tooltipElement.style.top = `${finalTop}px`;
+              tooltipElement.style.left = `${finalLeft}px`;
+              tooltipElement.style.visibility = 'visible';
+            });
 
-            tooltipElement.style.top = `${finalTop}px`;
-            tooltipElement.style.left = `${finalLeft}px`;
-            tooltipElement.style.visibility = 'visible';
         } else if (tooltipRef.current) {
             tooltipElement.style.visibility = 'hidden';
         }
-  }, [hoverInfo, tooltipContent]);
+  }, [hoverInfo, tooltipContent, isClickTooltipPinned]); // isClickTooltipPinned も依存
 
   // --- ホバー用ツールチップ ---
   const renderTooltip = () => {
-        if (!hoverInfo || !tooltipContent) return null;
+        if (!tooltipContent) return null;
 
         const tooltipStyle: React.CSSProperties = {
             position: 'absolute',
             zIndex: 1002,
-            pointerEvents: 'none',
+            // ピン留めされていない (ホバー) 時だけ 'none'
+            pointerEvents: isClickTooltipPinned ? 'auto' : 'none',
             transformOrigin: 'top left',
             visibility: 'hidden',
         };
@@ -1034,20 +1090,6 @@ function MapDashboard() {
           onMouseOut={handleMouseOut}
         >
             <ScaleControl unit="metric" position="bottom-left" />
-
-            {popupInfo && (
-                <Popup
-                    longitude={popupInfo.longitude}
-                    latitude={popupInfo.latitude}
-                    closeButton={true}
-                    closeOnClick={false}
-                    onClose={() => setPopupInfo(null)}
-                    anchor="bottom"
-                    style={{ maxHeight: '200px', overflowY: 'auto' }}
-                >
-                  {popupInfo.content}
-                </Popup>
-            )}
         </Map>
 
         {renderTooltip()}
