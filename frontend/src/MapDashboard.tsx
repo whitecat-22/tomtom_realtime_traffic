@@ -6,7 +6,8 @@ import {
   LuMap, LuLayers, LuTriangleAlert,
   LuPlus, LuMinus, LuChevronUp, LuChevronDown, LuGlobe,
   // --- サイドバー用アイコン ---
-  LuBell, LuLogIn, LuSettings
+  LuBell, LuLogIn, LuSettings,
+  LuSearch // 検索アイコン
 } from 'react-icons/lu';
 // ピン留め用アイコン
 import { BsPinFill, BsPinAngle } from "react-icons/bs";
@@ -444,6 +445,75 @@ const SideNavbar = ({
 };
 
 
+// --- 検索バーコンポーネント ---
+interface SearchBarProps {
+  onSearch: (query: string) => void;
+}
+
+const SearchBar: React.FC<SearchBarProps> = ({ onSearch }) => {
+  const [query, setQuery] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (query.trim()) {
+      onSearch(query.trim());
+    }
+  };
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      style={{
+        position: 'absolute',
+        top: '10px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 1001,
+        backgroundColor: 'rgba(30, 30, 30, 0.8)',
+        border: '1px solid #555',
+        borderRadius: '4px',
+        boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '2px',
+      }}
+    >
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search location..."
+        style={{
+          backgroundColor: 'transparent',
+          border: 'none',
+          outline: 'none',
+          color: 'white',
+          padding: '8px 10px',
+          fontSize: '14px',
+          width: '300px', // 検索窓の幅
+        }}
+      />
+      <button
+        type="submit"
+        style={{
+          background: '#444',
+          border: 'none',
+          borderRadius: '4px',
+          color: 'white',
+          padding: '6px 8px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+        }}
+        title="Search"
+      >
+        <LuSearch size={18} />
+      </button>
+    </form>
+  );
+};
+
+
 // --- メインコンポーネント ---
 function MapDashboard() {
   const [viewState, setViewState] = useState<Partial<ViewState>>(INITIAL_VIEW_STATE);
@@ -835,6 +905,36 @@ function MapDashboard() {
       color: '#777'
   };
 
+  // --- 検索ハンドラ ---
+  const handleSearch = async (query: string) => {
+    setError(null); // 以前のエラーをクリア
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/geocode?q=${encodeURIComponent(query)}`);
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || "Location not found");
+      }
+
+      const data = await response.json();
+
+      if (data.latitude && data.longitude) {
+        // マップを指定の座標に移動 (flyTo)
+        mapRef.current?.flyTo({
+          center: [data.longitude, data.latitude],
+          zoom: 10, // 地名検索後の適切なズームレベル
+          pitch: 0, // 検索時は真上から
+          bearing: 0,
+          essential: true,
+        });
+      } else {
+        throw new Error("Invalid coordinates received from server");
+      }
+    } catch (err: any) {
+      console.error("Search error:", err);
+      setError(err.message || "Failed to geocode location");
+    }
+  };
+
 
   // --- レンダリング ---
   return (
@@ -867,6 +967,9 @@ function MapDashboard() {
             {error}
           </div>
         )}
+
+        {/* 検索バーをマップラッパー内に配置 */}
+        <SearchBar onSearch={handleSearch} />
 
         <Map
           ref={mapRef}
@@ -972,8 +1075,6 @@ function MapDashboard() {
             gap: '8px'
         }}>
             {/* 1. Legend */}
-            {/* <Legend /> */}
-            {/* 開閉式凡例に変更 */}
             <LegendControl />
 
             {/* 2. Coords + Zoom Group */}

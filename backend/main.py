@@ -1,6 +1,7 @@
 import os
 import logging
 from typing import Optional, Dict, Any, Literal
+import urllib.parse
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -435,6 +436,53 @@ async def get_traffic_incident_tile(z: int, x: int, y: int):
         return Response(content=tile_data, media_type=media_type)
     except HTTPException as exc:
         raise exc
+
+
+# Geocoding API エンドポイント
+@app.get("/api/geocode")
+async def get_traffic_geocode(q: str):
+    """
+    TomTom Search API (Geocoding) を呼び出し、地名から座標を取得する
+    """
+    if not q:
+        raise HTTPException(status_code=400, detail="Query parameter 'q' is required")
+
+    # TomTom Search API (v2) の geocode エンドポイント
+    # クエリ文字列をURLエンコードする
+    api_path = f"/search/2/geocode/{urllib.parse.quote(q)}.json"
+
+    params = {
+        "limit": 1,          # 最も関連性の高い1件のみ取得
+        "language": "en-US"
+    }
+
+    logger.info(f"Calling TomTom Geocode API for query: {q}")
+
+    try:
+        # get_tomtom_data は JSON 応答も処理できる (expected_content_type_prefix を指定しない場合)
+        response = await get_tomtom_data(api_path, params=params)
+        data = response.json()
+
+        if data and data.get("results"):
+            result = data["results"][0]
+            pos = result.get("position")
+
+            if pos and pos.get("lat") is not None and pos.get("lon") is not None:
+                logger.info(f"Geocode success for '{q}': {pos}")
+                return {"latitude": pos["lat"], "longitude": pos["lon"]}
+            else:
+                logger.warning(f"Geocode result for '{q}' missing position data: {result}")
+                raise HTTPException(status_code=404, detail="Position data not found in geocode result")
+        else:
+            logger.info(f"Geocode no results for: {q}")
+            raise HTTPException(status_code=404, detail="Location not found")
+
+    except HTTPException as exc:
+        # get_tomtom_data が発生させたエラーをそのまま再送出
+        raise exc
+    except Exception as e:
+        logger.error(f"Unexpected error during geocoding: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during geocoding")
 
 
 if __name__ == "__main__":
