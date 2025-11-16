@@ -615,18 +615,46 @@ const formatFlowDetailsContent = (
   // API (v4) からの詳細データを取得
   const segment = apiData?.flowSegmentData;
 
+  // タイル情報の全キーを表示するロジック (APIに存在するキーを除く)
+  const internalKeys = new Set([
+    '$type', 'layer', 'source', 'sourceLayer', 'state', 'tile',
+    'currentSpeed', 'freeFlowSpeed', 'currentTravelTime', 'confidence', 'road_type', 'traffic_level'
+  ]);
+  const tileLines: React.ReactNode[] = [];
+  const keys = Object.keys(tileProps).sort();
+  for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(tileProps, key) && !internalKeys.has(key)) {
+          const value = tileProps[key];
+          if (value !== undefined && value !== null) {
+              const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+              let displayValue = String(value);
+              tileLines.push(
+                  <span style={{ overflowWrap: 'break-word' }} key={key}>
+                      <strong>{formattedKey}:</strong> {displayValue}
+                  </span>
+              );
+          }
+      }
+  }
+
   return (
     <div style={style}>
       {isPinned && <CloseButton onClick={onClose} color="white" />}
       {title}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '200px', overflowY: 'auto', paddingRight: '5px' }}>
+
+        {/* タイル データを先に表示 */}
+        <span><strong>Road Type:</strong> {tileProps.road_type || 'N/A'}</span>
+        <span><strong>Speed:</strong> {tileProps.traffic_level || 'N/A'} km/h</span>
+        {tileLines}
+
+        <hr style={{border: 'none', borderTop: '1px solid #555'}} />
+
+        {/* API v4 データ */}
         <span><strong>Current Speed:</strong> {segment?.currentSpeed ?? 'N/A'} km/h</span>
         <span><strong>Free Flow Speed:</strong> {segment?.freeFlowSpeed ?? 'N/A'} km/h</span>
         <span><strong>Current Travel Time:</strong> {segment?.currentTravelTime ?? 'N/A'} sec</span>
         <span><strong>Confidence:</strong> {segment?.confidence ?? 'N/A'}</span>
-        <hr style={{border: 'none', borderTop: '1px solid #555'}} />
-        <span><strong>Road Type (Tile):</strong> {tileProps.road_type || 'N/A'}</span>
-        <span><strong>Speed (Tile):</strong> {tileProps.traffic_level || 'N/A'} km/h</span>
       </div>
     </div>
   );
@@ -657,15 +685,75 @@ const formatIncidentDetailsContent = (
       </strong>
   );
 
-  // API (v5) からの詳細データを取得 (main.pyの 'fields' パラメータに基づく)
+  // API (v5) からの詳細データを取得
   const detail = apiData?.incidents?.[0]?.properties;
+
+  // タイル情報の全キーを表示するロジック (APIに存在するキーを除く)
+  const iconCategoryMap: { [key: number]: string } = {
+      0: 'Unknown', 1: 'Accident', 2: 'Fog', 3: 'Dangerous Conditions', 4: 'Rain',
+      5: 'Ice', 6: 'Jam', 7: 'Lane Closed', 8: 'Road Closed', 9: 'Road Works',
+      10: 'Wind', 11: 'Flooding', 14: 'Broken Down Vehicle'
+  };
+  // APIと重複する可能性のあるキーを除外
+  const internalKeys = new Set([
+      '$type', 'layer', 'source', 'sourceLayer', 'state', 'tile',
+      'id', 'from', 'to', 'length', 'delay', 'startTime', 'endTime',
+      'end_date', 'last_report_time' // APIの startTime/endTime と重複するため
+  ]);
+  const dateKeys = new Set(['last_report_time']); // (startTime/endTime は除外)
+  const tileLines: React.ReactNode[] = [];
+  const keys = Object.keys(tileProps).sort();
+  for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(tileProps, key) && !internalKeys.has(key)) {
+          const value = tileProps[key];
+          if (value !== undefined && value !== null) {
+              const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+              let displayValue = String(value);
+              if (key === 'delay') { // (APIと重複するが、名前が同じなのでそのまま表示)
+                  displayValue = `${String(value)} s`;
+              } else if (key === 'magnitude') {
+                  let magnitudeText = 'Unknown';
+                  switch (Number(value)) {
+                      case 1: magnitudeText = 'Minor'; break;
+                      case 2: magnitudeText = 'Moderate'; break;
+                      case 3: magnitudeText = 'Major'; break;
+                      case 4: magnitudeText = 'Indefinite'; break;
+                  }
+                  displayValue = `${String(value)}. ${magnitudeText}`;
+              } else if (key.startsWith('icon_category')) {
+                  const numericValue = Number(value);
+                  const description = iconCategoryMap[numericValue];
+                  displayValue = description ? `${String(value)}. ${description}` : `${String(value)}. Other`;
+              } else if (dateKeys.has(key) && typeof value === 'string' && value.endsWith('Z')) {
+                  displayValue = formatDateUTC(value);
+              }
+              tileLines.push(
+                  <span style={{ overflowWrap: 'break-word' }} key={key}>
+                      <strong>{formattedKey}:</strong> {displayValue}
+                  </span>
+              );
+          }
+      }
+  }
 
   return (
     <div style={style}>
       {isPinned && <CloseButton onClick={onClose} />}
       {title}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
-        {/* detail が存在する場合のみプロパティを表示 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '200px', overflowY: 'auto', paddingRight: '5px' }}>
+
+        {/* タイル データを先に表示 */}
+        <span style={{ overflowWrap: 'break-word' }}>
+          <strong>ID:</strong> {tileProps.id || 'N/A'}
+        </span>
+        <span style={{ overflowWrap: 'break-word' }}>
+          <strong>Description:</strong> {tileProps.description || 'N/A'}
+        </span>
+        {tileLines}
+
+        <hr style={{border: 'none', borderTop: '1px solid #ccc'}} />
+
+        {/* API v5 データ */}
         {detail ? (
           <>
             <span><strong>From:</strong> {detail.from ?? 'N/A'}</span>
@@ -678,13 +766,6 @@ const formatIncidentDetailsContent = (
         ) : (
           <span>No specific (v5) details found.</span>
         )}
-        <hr style={{border: 'none', borderTop: '1px solid #ccc'}} />
-        <span style={{ overflowWrap: 'break-word' }}>
-          <strong>Desc (Tile):</strong> {tileProps.description || 'N/A'}
-        </span>
-        <span style={{ overflowWrap: 'break-word' }}>
-          <strong>Road (Tile):</strong> {tileProps.road_type || 'N/A'}
-        </span>
       </div>
     </div>
   );
