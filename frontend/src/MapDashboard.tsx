@@ -40,11 +40,30 @@ const legendData = [
   { speed: '80-',   color: '#004CB0' },
 ];
 
+// --- 道路種別データ (0-8) ---
+const roadTypeData = [
+  { id: 0, label: 'Motorway' },
+  { id: 1, label: 'International road' },
+  { id: 2, label: 'Major road' },
+  { id: 3, label: 'Secondary road' },
+  { id: 4, label: 'Connecting road' },
+  { id: 5, label: 'Major local road' },
+  { id: 6, label: 'Local road' },
+  { id: 7, label: 'Minor local road' },
+  { id: 8, label: 'Other roads' }, // Other roads (Non public road, Parking road, etc.)
+];
+
+// フィルタ対象のレイヤーIDをコンポーネント外の定数として定義
+const layersToFilter = [
+  'tomtom-traffic-layer', // Flow レイヤー
+  'tomtom-traffic-incident-layer-outline', // Incident レイヤー
+  'tomtom-traffic-incident-layer-dash'      // Incident レイヤー
+];
+
+
 // --- 開閉式凡例コンポーネント ---
 const LegendControl = () => {
   const [isLegendOpen, setIsLegendOpen] = useState(false); // 凡例の開閉状態
-
-  // 開いているときのスタイル
   const openStyle: React.CSSProperties = {
     backgroundColor: 'rgba(30,30,30,0.8)',
     color: 'white',
@@ -55,10 +74,8 @@ const LegendControl = () => {
     fontFamily: 'sans-serif',
     fontSize: '12px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-    cursor: 'pointer', // 開いたパネルをクリックしても閉じられるように
+    cursor: 'pointer',
   };
-
-  // 閉じているときのスタイル (ボタン)
   const closedStyle: React.CSSProperties = {
     backgroundColor: '#333',
     color: 'white',
@@ -76,7 +93,6 @@ const LegendControl = () => {
   };
 
   if (isLegendOpen) {
-    // 開いている状態
     return (
       <div style={openStyle} onClick={() => setIsLegendOpen(false)}>
         <h4 style={{ margin: '0 0 5px 0', color: 'white' }}>Speed (km/h)</h4>
@@ -96,8 +112,6 @@ const LegendControl = () => {
       </div>
     );
   }
-
-  // 閉じている状態 (ボタン)
   return (
     <button
       style={closedStyle}
@@ -112,15 +126,12 @@ const LegendControl = () => {
 // --- カーソル座標表示コンポーネント ---
 const CursorCoordinates = ({ coords }: { coords: { lng: number; lat: number } | null }) => {
   if (!coords) return null;
-
-  // 度 + 10進数の分 (小数点2桁)
   const toDegMin = (decimal: number, isLat: boolean) => {
       const degrees = Math.floor(Math.abs(decimal));
       const minutes = ((Math.abs(decimal) - degrees) * 60).toFixed(2);
       const direction = isLat ? (decimal >= 0 ? 'N' : 'S') : (decimal >= 0 ? 'E' : 'W');
       return `${degrees}° ${String(minutes).padStart(5, '0')} ${direction}`;
   };
-
   return (
       <div style={{
           backgroundColor: 'rgba(0, 0, 0, 0.7)',
@@ -183,12 +194,10 @@ interface BaseMapSwitcherProps {
 
 const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChangeStyle }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-
   const handleSelectStyle = (styleKey: BaseMapStyleKey) => {
     onChangeStyle(styleKey);
     setIsMenuOpen(false);
   };
-
   return (
     <div style={{ position: 'relative' }}>
       <button
@@ -198,7 +207,6 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
       >
         <LuMap size={20} />
       </button>
-
       {isMenuOpen && (
         <div style={{
           position: 'absolute', top: '0', right: '40px',
@@ -212,11 +220,10 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
           zIndex: 2,
         }}>
           <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #555', paddingBottom: '4px', color: 'white' }}>Map type</h4>
-
           {(Object.keys(baseMapUrls) as BaseMapStyleKey[]).map((key) => {
               const label = key === 'positron' ? 'Light' :
                             key === 'darkmatter' ? 'Dark' :
-                            key === 'osmStandard' ? 'OSM' :
+                            key === ('osmStandard' || 'osm-standard') ? 'OSM' :
                             key === 'satellite' ? 'Satellite' : key;
               return (
                   <label key={key} style={{
@@ -246,10 +253,13 @@ interface LayerMenuPanelProps {
   onToggleFlow: () => void;
   isIncidentsVisible: boolean;
   onToggleIncidents: () => void;
+  selectedRoadTypes: Set<number>;
+  onToggleRoadType: (id: number) => void;
 }
 
 const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
-  isFlowVisible, onToggleFlow, isIncidentsVisible, onToggleIncidents
+  isFlowVisible, onToggleFlow, isIncidentsVisible, onToggleIncidents,
+  selectedRoadTypes, onToggleRoadType
 }) => (
   <div style={{
     position: 'absolute',
@@ -261,10 +271,12 @@ const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
     padding: '10px',
     borderRadius: '5px',
     zIndex: 1,
-    width: '150px',
+    width: '180px',
     boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
     fontFamily: 'sans-serif',
     fontSize: '12px',
+    maxHeight: '80vh',
+    overflowY: 'auto',
   }}>
     <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #555', paddingBottom: '4px', color: 'white' }}>Layers</h4>
     <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'white' }}>
@@ -285,6 +297,34 @@ const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
       />
       Traffic Incidents
     </label>
+    <h5 style={{
+      margin: '12px 0 5px 0',
+      fontSize: '13px',
+      borderBottom: '1px solid #444',
+      paddingBottom: '3px',
+      color: 'white'
+    }}>
+      Road Types
+    </h5>
+    {roadTypeData.map((rt) => (
+      <label key={rt.id} style={{
+        cursor: isFlowVisible ? 'pointer' : 'not-allowed',
+        display: 'flex',
+        alignItems: 'center',
+        marginTop: '4px',
+        color: isFlowVisible ? 'white' : '#888',
+        fontSize: '12px'
+      }}>
+        <input
+          type="checkbox"
+          checked={selectedRoadTypes.has(rt.id)}
+          onChange={() => onToggleRoadType(rt.id)}
+          disabled={!isFlowVisible}
+          style={{ marginRight: '5px', accentColor: 'white' }}
+        />
+        {rt.label}
+      </label>
+    ))}
   </div>
 );
 
@@ -293,19 +333,16 @@ const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
 const navIconStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
-    padding: '10px 16px', // 左右のパディングを 16px に
+    padding: '10px 16px',
     cursor: 'pointer',
-    color: '#eee', // アイコンの色
+    color: '#eee',
     borderRadius: '4px',
-    margin: '5px 0', // 上下のマージン
+    margin: '5px 0',
 };
-
 const navIconHoverStyle: React.CSSProperties = {
-    backgroundColor: '#444', // ホバー時の背景色
+    backgroundColor: '#444',
     color: 'white',
 };
-
-// NavItem component
 const NavItem = ({ icon, text, isOpen }: { icon: React.ReactNode, text: string, isOpen: boolean }) => {
     const [isHovered, setIsHovered] = useState(false);
     return (
@@ -313,29 +350,25 @@ const NavItem = ({ icon, text, isOpen }: { icon: React.ReactNode, text: string, 
             style={{
               ...navIconStyle,
               ...(isHovered ? navIconHoverStyle : {}),
-              justifyContent: isOpen ? 'flex-start' : 'center', // 閉じているときは中央揃え
+              justifyContent: isOpen ? 'flex-start' : 'center',
             }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
-            title={!isOpen ? text : undefined} // ツールチップを閉じてるときだけ表示
+            title={!isOpen ? text : undefined}
         >
             {icon}
             {isOpen && <span style={{ marginLeft: '12px', fontSize: '14px', whiteSpace: 'nowrap' }}>{text}</span>}
         </div>
     );
 };
-
-// ピン留めボタン用コンポーネント
 const PinButton = ({ isPinned, onClick }: { isPinned: boolean, onClick: () => void }) => {
     const [isHovered, setIsHovered] = useState(false);
-
     const pinStyle: React.CSSProperties = {
         cursor: 'pointer',
-        color: isHovered ? 'white' : '#999', // ホバーで白く
+        color: isHovered ? 'white' : '#999',
         transition: 'color 0.1s ease',
         padding: '5px',
     };
-
     return (
         <div
             onClick={onClick}
@@ -348,8 +381,6 @@ const PinButton = ({ isPinned, onClick }: { isPinned: boolean, onClick: () => vo
         </div>
     );
 };
-
-// SideNavbar component
 const SideNavbar = ({
     isOpen,
     isPinned,
@@ -370,7 +401,7 @@ const SideNavbar = ({
                 left: 0,
                 top: 0,
                 height: '100vh',
-                width: isOpen ? '220px' : '52px', // 幅を 220px に
+                width: isOpen ? '220px' : '52px',
                 backgroundColor: '#222',
                 color: 'white',
                 zIndex: 1003,
@@ -386,22 +417,18 @@ const SideNavbar = ({
         >
             {/* Top Section */}
             <div>
-                {/* サービスロゴとタイトル、ピン */}
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    padding: '10px 16px', // NavItem と同じパディング
-                    height: '40px', // NavItem と同じ高さ (10*2 + 20)
+                    padding: '10px 16px',
+                    height: '40px',
                     marginBottom: '10px',
                 }}>
-                    {/* ロゴ */}
                     <GiHorizonRoad size={isOpen ? 28 : 20} />
-
-                    {/* テキストとピン (開いているときだけ表示) */}
                     {isOpen && (
                         <div style={{
                             marginLeft: '10px',
-                            flexGrow: 1, // 残りのスペースを埋める
+                            flexGrow: 1,
                             overflow: 'hidden',
                         }}>
                             <span style={{
@@ -417,27 +444,22 @@ const SideNavbar = ({
                                 fontWeight: 'bold',
                                 color: 'white',
                                 whiteSpace: 'nowrap',
-                                display: 'block', // 2行目
+                                display: 'block',
                             }}>
                                 Flow Monitoring
                             </span>
                         </div>
                     )}
-                    {/* ピンボタン (開いているときだけ表示) */}
                     {isOpen && (
                         <PinButton isPinned={isPinned} onClick={onPinToggle} />
                     )}
                 </div>
-
-                {/* Map Icon */}
-                {/* <NavItem icon={<FaGlobeAmericas size={20} />} text="Map" isOpen={isOpen} /> */}
             </div>
-
             {/* Bottom Section */}
             <div style={{
                 position: 'absolute',
-                bottom: '20px', // 画面下端からの距離 (タスクバー分 + 5px)
-                width: '100%',  // 親要素の幅に合わせる
+                bottom: '20px',
+                width: '100%',
             }}>
                 <NavItem icon={<MdNotifications size={20} />} text="Notifications" isOpen={isOpen} />
                 <NavItem icon={<LuLogIn size={20} />} text="Login" isOpen={isOpen} />
@@ -448,27 +470,23 @@ const SideNavbar = ({
 };
 
 
-// --- 検索バーコンポーネント (Props を変更) ---
+// --- 検索バーコンポーネント ---
 interface SearchBarProps {
   query: string;
   setQuery: (query: string) => void;
   onSearch: (query: string) => void;
 }
-
 const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch }) => {
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
       onSearch(query.trim());
     }
   };
-
   return (
     <form
       onSubmit={handleSubmit}
       style={{
-        // position 関連は親ラッパーで管理
         backgroundColor: 'rgba(30, 30, 30, 0.8)',
         border: '1px solid #555',
         borderRadius: '4px',
@@ -481,7 +499,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch }) => {
       <input
         type="text"
         value={query}
-        onChange={(e) => setQuery(e.target.value)} // 親の state を更新
+        onChange={(e) => setQuery(e.target.value)}
         placeholder="Search location..."
         style={{
           backgroundColor: 'transparent',
@@ -490,7 +508,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch }) => {
           color: 'white',
           padding: '8px 10px',
           fontSize: '14px',
-          width: '300px', // 検索窓の幅
+          width: '300px',
         }}
       />
       <button
@@ -513,6 +531,163 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, setQuery, onSearch }) => {
   );
 };
 
+// --- ツールチップの内容生成ロジック ---
+const formatDateUTC = (isoString: string): string => {
+  try {
+      const date = new Date(isoString);
+      if (isNaN(date.getTime())) {
+          return isoString;
+      }
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const hours = String(date.getUTCHours()).padStart(2, '0');
+      const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+      const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
+  } catch (e) {
+      return isoString;
+  }
+};
+const formatFlowContent = (properties: any, isPinned: boolean, onClose: () => void): React.ReactNode => {
+  const style: React.CSSProperties = {
+    fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px',
+    backgroundColor: 'rgba(0,0,0,0.7)', color: 'white',
+    padding: '5px 8px', borderRadius: '3px',
+    position: 'relative',
+  };
+  const title = (
+      <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+          <FaCar size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Traffic Flow
+      </strong>
+  );
+  if (!properties) return <div style={style}>{title}<br/>(No data)</div>;
+  const internalKeys = new Set(['$type', 'layer', 'source', 'sourceLayer', 'state', 'tile']);
+  const lines: React.ReactNode[] = [];
+  const keys = Object.keys(properties).sort();
+  for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(properties, key) && !internalKeys.has(key)) {
+          const value = properties[key];
+          if (value !== undefined && value !== null) {
+              const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+              let displayValue = String(value);
+              if (key === 'traffic_level') {
+                  displayValue += ' km/h';
+              }
+              lines.push(
+                  <span style={{ overflowWrap: 'break-word' }} key={key}>
+                      <strong>{formattedKey}:</strong> {displayValue}
+                  </span>
+              );
+          }
+      }
+  }
+  const content = (lines.length === 0)
+      ? "(No detailed info available)"
+      : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>{lines}</div>;
+  const closeButton = isPinned && (
+      <FaWindowClose
+          size={16}
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          style={{
+              position: 'absolute',
+              top: '5px',
+              right: '5px',
+              cursor: 'pointer',
+              color: 'white'
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.8)')}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.5)')}
+      />
+  );
+  return <div style={style}>{closeButton}{title}{content}</div>;
+};
+const formatIncidentContent = (properties: any, isPinned: boolean, onClose: () => void): React.ReactNode => {
+  const style: React.CSSProperties = {
+    fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px',
+    backgroundColor: 'rgba(255,249,196,0.9)', color: 'black',
+    padding: '5px 8px', borderRadius: '3px', border: '1px solid #E0E0E0',
+    position: 'relative',
+  };
+  const title = (
+      <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+          <LuTriangleAlert size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Traffic Incident
+      </strong>
+  );
+  if (!properties) return <div style={style}>{title}<br/>(No data)</div>;
+  const iconCategoryMap: { [key: number]: string } = {
+      0: 'Unknown', 1: 'Accident', 2: 'Fog', 3: 'Dangerous Conditions', 4: 'Rain',
+      5: 'Ice', 6: 'Jam', 7: 'Lane Closed', 8: 'Road Closed', 9: 'Road Works',
+      10: 'Wind', 11: 'Flooding', 14: 'Broken Down Vehicle'
+  };
+  const internalKeys = new Set(['$type', 'layer', 'source', 'sourceLayer', 'state', 'tile']);
+  const dateKeys = new Set(['end_date', 'last_report_time']);
+  const lines: React.ReactNode[] = [];
+  const keys = Object.keys(properties).sort();
+  for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(properties, key) && !internalKeys.has(key)) {
+          const value = properties[key];
+          if (value !== undefined && value !== null) {
+              const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+              let displayValue = String(value);
+              if (key === 'delay') {
+                  displayValue = `${String(value)} s`;
+              } else if (key === 'magnitude') {
+                  let magnitudeText = 'Unknown';
+                  switch (Number(value)) {
+                      case 1: magnitudeText = 'Minor'; break;
+                      case 2: magnitudeText = 'Moderate'; break;
+                      case 3: magnitudeText = 'Major'; break;
+                      case 4: magnitudeText = 'Indefinite'; break;
+                  }
+                  if (Number(value) === 4) {
+                      displayValue = `${String(value)}. Indefinite (road closures and other delays with an unstated length of time)`;
+                  } else {
+                      displayValue = `${String(value)}. ${magnitudeText}`;
+                  }
+              } else if (key.startsWith('icon_category')) {
+                  const numericValue = Number(value);
+                  const description = iconCategoryMap[numericValue];
+                  if (description !== undefined) {
+                      displayValue = `${String(value)}. ${description}`;
+                  } else {
+                      displayValue = `${String(value)}. Other`;
+                  }
+              } else if (dateKeys.has(key) && typeof value === 'string' && value.endsWith('Z')) {
+                  displayValue = formatDateUTC(value);
+              }
+              lines.push(
+                  <span style={{ overflowWrap: 'break-word' }} key={key}>
+                      <strong>{formattedKey}:</strong> {displayValue}
+                  </span>
+              );
+          }
+      }
+  }
+  const content = (lines.length === 0)
+      ? "(No detailed info available)"
+      : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>{lines}</div>;
+  const closeButton = isPinned && (
+      <FaWindowClose
+          size={16}
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          style={{
+              position: 'absolute',
+              top: '5px',
+              right: '5px',
+              cursor: 'pointer',
+              color: 'black'
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.2)')}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.1)')}
+      />
+  );
+  return <div style={style}>{closeButton}{title}{content}</div>;
+};
+
+// --- roadTypeData に基づく 'match' 式のペアをここで生成
+const roadTypeMatchPairs = roadTypeData.flatMap(rt => [rt.label, rt.id]);
+
 
 // --- メインコンポーネント ---
 function MapDashboard() {
@@ -523,25 +698,18 @@ function MapDashboard() {
   const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number } | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [tooltipContent, setTooltipContent] = useState<React.ReactNode>(null);
-  // クリックポップアップをピン留めする state
   const [isClickTooltipPinned, setIsClickTooltipPinned] = useState(false);
-
   const [isFlowVisible, setIsFlowVisible] = useState(true);
   const [isIncidentsVisible, setIsIncidentsVisible] = useState(true);
-
   const [isLayerMenuOpen, setIsLayerMenuOpen] = useState(false);
   const [cursorCoords, setCursorCoords] = useState<{ lng: number; lat: number } | null>(null);
-
-  // --- サイドバーの state ---
+  const [selectedRoadTypes, setSelectedRoadTypes] = useState<Set<number>>(
+    new Set(roadTypeData.map(rt => rt.id))
+  );
   const [isSidebarPinned, setIsSidebarPinned] = useState(false);
   const [isSidebarHoverOpen, setIsSidebarHoverOpen] = useState(false);
-  // 開閉状態を計算
   const isSidebarOpen = isSidebarPinned || isSidebarHoverOpen;
-
-  // --- 検索クエリ用の state ---
   const [searchQuery, setSearchQuery] = useState("");
-
-
   const mapStyleUrl = baseMapUrls[currentMapStyleKey];
 
   const handleMapMove = useCallback((e: any) => {
@@ -552,246 +720,27 @@ function MapDashboard() {
     //
   }, []);
 
-  const handleMapLoad = useCallback(() => {
-      console.log('Map loaded via Map onLoad');
-      // マップロード時にレイヤーの初期表示状態をセット
-      const map = mapRef.current?.getMap();
-      if (!map) return;
-
-      const setInitialVisibility = () => {
-        try {
-            if (map.getLayer('tomtom-traffic-layer')) {
-                map.setLayoutProperty('tomtom-traffic-layer', 'visibility', isFlowVisible ? 'visible' : 'none');
-            }
-            const incidentLayerIds = [
-                'tomtom-traffic-incident-layer-outline',
-                'tomtom-traffic-incident-layer-dash'
-            ];
-            incidentLayerIds.forEach(layerId => {
-                if (map.getLayer(layerId)) {
-                    map.setLayoutProperty(layerId, 'visibility', isIncidentsVisible ? 'visible' : 'none');
-                }
-            });
-        } catch (error) {
-            console.error("Error setting initial layer visibility (style might be changing):", error);
-        }
-      };
-
-      if (map.isStyleLoaded()) {
-        setInitialVisibility();
-      } else {
-        map.once('styledata', setInitialVisibility);
-      }
-
-  }, [isFlowVisible, isIncidentsVisible]);
-
-  // --- Popup/Tooltipの内容を整形する関数 (isPinned と onClose を追加) ---
-  // 交通流 (Flow) 用
-  const formatFlowContent = (properties: any, isPinned: boolean, onClose: () => void): React.ReactNode => {
-    const style: React.CSSProperties = {
-      fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px',
-      backgroundColor: 'rgba(0,0,0,0.7)', color: 'white',
-      padding: '5px 8px', borderRadius: '3px',
-      position: 'relative', // 閉じるボタンの配置基準
-    };
-    const title = (
-        <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
-            <FaCar size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Traffic Flow
-        </strong>
-    );
-    if (!properties) return <div style={style}>{title}<br/>(No data)</div>;
-    const internalKeys = new Set(['$type', 'layer', 'source', 'sourceLayer', 'state', 'tile']);
-    const lines: React.ReactNode[] = [];
-    const keys = Object.keys(properties).sort();
-    for (const key of keys) {
-        if (Object.prototype.hasOwnProperty.call(properties, key) && !internalKeys.has(key)) {
-            const value = properties[key];
-            if (value !== undefined && value !== null) {
-                const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
-                let displayValue = String(value);
-                if (key === 'traffic_level') {
-                    displayValue += ' km/h';
-                }
-                lines.push(
-                    <span style={{ overflowWrap: 'break-word' }} key={key}>
-                        <strong>{formattedKey}:</strong> {displayValue}
-                    </span>
-                );
-            }
-        }
-    }
-
-    const content = (lines.length === 0)
-        ? "(No detailed info available)"
-        : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>{lines}</div>;
-
-    // 閉じるボタン
-    const closeButton = isPinned && (
-        <FaWindowClose
-            size={16}
-            onClick={(e) => { e.stopPropagation(); onClose(); }} // イベント伝播を停止
-            style={{
-                position: 'absolute',
-                top: '5px',
-                right: '5px',
-                cursor: 'pointer',
-                color: 'white'
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.8)')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.5)')}
-        />
-    );
-
-    return <div style={style}>{closeButton}{title}{content}</div>;
-  };
-
-  // --- 日付フォーマット用ヘルパー関数 ---
-  const formatDateUTC = (isoString: string): string => {
-    try {
-        const date = new Date(isoString);
-        if (isNaN(date.getTime())) {
-            return isoString;
-        }
-        const year = date.getUTCFullYear();
-        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(date.getUTCDate()).padStart(2, '0');
-        const hours = String(date.getUTCHours()).padStart(2, '0');
-        const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-        const seconds = String(date.getUTCSeconds()).padStart(2, '0');
-        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
-    } catch (e) {
-        return isoString;
-    }
-  };
-
-  // インシデント (Incident) 用 (isPinned と onClose を追加)
-  const formatIncidentContent = (properties: any, isPinned: boolean, onClose: () => void): React.ReactNode => {
-    const style: React.CSSProperties = {
-      fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px',
-      backgroundColor: 'rgba(255,249,196,0.9)', color: 'black',
-      padding: '5px 8px', borderRadius: '3px', border: '1px solid #E0E0E0',
-      position: 'relative', // 閉じるボタンの配置基準
-    };
-    const title = (
-        <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
-            <LuTriangleAlert size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Traffic Incident
-        </strong>
-    );
-    if (!properties) return <div style={style}>{title}<br/>(No data)</div>;
-    const iconCategoryMap: { [key: number]: string } = {
-        0: 'Unknown',
-        1: 'Accident',
-        2: 'Fog',
-        3: 'Dangerous Conditions',
-        4: 'Rain',
-        5: 'Ice',
-        6: 'Jam',
-        7: 'Lane Closed',
-        8: 'Road Closed',
-        9: 'Road Works',
-        10: 'Wind',
-        11: 'Flooding',
-        14: 'Broken Down Vehicle'
-    };
-    const internalKeys = new Set(['$type', 'layer', 'source', 'sourceLayer', 'state', 'tile']);
-    const dateKeys = new Set(['end_date', 'last_report_time']);
-    const lines: React.ReactNode[] = [];
-    const keys = Object.keys(properties).sort();
-    for (const key of keys) {
-        if (Object.prototype.hasOwnProperty.call(properties, key) && !internalKeys.has(key)) {
-            const value = properties[key];
-            if (value !== undefined && value !== null) {
-                const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
-                let displayValue = String(value);
-                if (key === 'delay') {
-                    displayValue = `${String(value)} s`;
-                } else if (key === 'magnitude') {
-                    let magnitudeText = 'Unknown';
-                    switch (Number(value)) {
-                        case 1: magnitudeText = 'Minor'; break;
-                        case 2: magnitudeText = 'Moderate'; break;
-                        case 3: magnitudeText = 'Major'; break;
-                        case 4: magnitudeText = 'Indefinite'; break;
-                    }
-                    if (Number(value) === 4) {
-                        displayValue = `${String(value)}. Indefinite (road closures and other delays with an unstated length of time)`;
-                    } else {
-                        displayValue = `${String(value)}. ${magnitudeText}`;
-                    }
-                } else if (key.startsWith('icon_category')) {
-                    const numericValue = Number(value);
-                    const description = iconCategoryMap[numericValue];
-                    if (description !== undefined) {
-                        displayValue = `${String(value)}. ${description}`;
-                    } else {
-                        displayValue = `${String(value)}. Other`;
-                    }
-                } else if (dateKeys.has(key) && typeof value === 'string' && value.endsWith('Z')) {
-                    displayValue = formatDateUTC(value);
-                }
-                lines.push(
-                    <span style={{ overflowWrap: 'break-word' }} key={key}>
-                        <strong>{formattedKey}:</strong> {displayValue}
-                    </span>
-                );
-            }
-        }
-    }
-
-    const content = (lines.length === 0)
-        ? "(No detailed info available)"
-        : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>{lines}</div>;
-
-    // 閉じるボタン
-    const closeButton = isPinned && (
-        <FaWindowClose
-            size={16}
-            onClick={(e) => { e.stopPropagation(); onClose(); }} // イベント伝播を停止
-            style={{
-                position: 'absolute',
-                top: '5px',
-                right: '5px',
-                cursor: 'pointer',
-                color: 'black' // 黄色い背景用
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.2)')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.1)')}
-        />
-    );
-
-    return <div style={style}>{closeButton}{title}{content}</div>;
-  };
-
-
   // --- マウスホバー時の処理 ---
   const handleMouseMove = useCallback((event: maplibregl.MapLayerMouseEvent) => {
-    // クリックでピン留め中はホバー処理を中断
     if (isClickTooltipPinned) {
       return;
     }
-
-    // カーソル座標を更新
     setCursorCoords(event.lngLat);
-
     const { features, point } = event;
     const flowFeature = features && features.find(f => f.layer.id === 'tomtom-traffic-layer');
     const incidentFeature = features && features.find(f =>
         f.layer.id === 'tomtom-traffic-incident-layer-outline' ||
         f.layer.id === 'tomtom-traffic-incident-layer-dash'
     );
-
     const map = mapRef.current?.getMap();
     if (map) map.getCanvas().style.cursor = (flowFeature || incidentFeature) ? 'pointer' : '';
-
     let content: React.ReactNode = null;
-    // isPinned: false を渡す
     const dummyOnClose = () => {};
     if (incidentFeature) {
       content = formatIncidentContent(incidentFeature.properties, false, dummyOnClose);
     } else if (flowFeature) {
       content = formatFlowContent(flowFeature.properties, false, dummyOnClose);
     }
-
     if (content) {
       setHoverInfo({ x: point.x, y: point.y });
       setTooltipContent(content);
@@ -799,7 +748,7 @@ function MapDashboard() {
       setHoverInfo(null);
       setTooltipContent(null);
     }
-  }, [isClickTooltipPinned]); // isClickTooltipPinned を依存配列に追加
+  }, [isClickTooltipPinned]);
 
   // --- 地図からマウスが離れた時の処理 ---
   const handleMouseOut = useCallback(() => {
@@ -808,115 +757,90 @@ function MapDashboard() {
 
   // --- クリック時の処理 ---
   const handleClick = useCallback((event: maplibregl.MapLayerMouseEvent) => {
-    // ツールチップを閉じるための関数
     const handleCloseTooltip = () => {
       setIsClickTooltipPinned(false);
       setTooltipContent(null);
     };
-
-    const { features, lngLat, point } = event;
+    const { features, point } = event;
     const flowFeature = features && features.find(f => f.layer.id === 'tomtom-traffic-layer');
     const incidentFeature = features && features.find(f =>
         f.layer.id === 'tomtom-traffic-incident-layer-outline' ||
         f.layer.id === 'tomtom-traffic-incident-layer-dash'
     );
-
     let featureToShow = null;
     let content: React.ReactNode = null;
-
     if (incidentFeature) {
         featureToShow = incidentFeature;
-        // isPinned: true と handleCloseTooltip を渡す
         content = formatIncidentContent(featureToShow.properties, true, handleCloseTooltip);
     } else if (flowFeature) {
         featureToShow = flowFeature;
-        // isPinned: true と handleCloseTooltip を渡す
         content = formatFlowContent(featureToShow.properties, true, handleCloseTooltip);
     }
-
     if (featureToShow) {
-        setHoverInfo({ x: point.x, y: point.y }); // マウスカーソル位置を記憶
-        setTooltipContent(content); // ツールチップの内容をセット
-        setIsClickTooltipPinned(true); // ピン留め状態にする
+        setHoverInfo({ x: point.x, y: point.y });
+        setTooltipContent(content);
+        setIsClickTooltipPinned(true);
     } else {
-        // 何もない場所をクリックしたら、ピン留めを解除
         setIsClickTooltipPinned(false);
         setTooltipContent(null);
     }
-  }, []); // 依存配列は空
+  }, []);
 
   // --- エラー表示の5秒タイマー ---
   useEffect(() => {
     if (error) {
       const timer = setTimeout(() => {
         setError(null);
-      }, 5000); // 5000ms = 5秒
-
-      // コンポーネントがアンマウントされるか、errorが変更された場合にタイマーをクリア
+      }, 5000);
       return () => clearTimeout(timer);
     }
-  }, [error]); // error state が変更されるたびに実行
+  }, [error]);
 
   // --- ツールチップの位置調整ロジック ---
   useEffect(() => {
         if (tooltipRef.current && hoverInfo && tooltipContent) {
             const tooltipElement = tooltipRef.current;
-            const mapWrapper = tooltipElement.parentElement; // マップラッパー
+            const mapWrapper = tooltipElement.parentElement;
             if (!mapWrapper) return;
-
-            // ツールチップの矩形サイズを次回描画後に取得
-            // (クリック時に内容が変わるとサイズも変わるため)
             requestAnimationFrame(() => {
               const tooltipRect = tooltipElement.getBoundingClientRect();
               const tooltipHeight = tooltipRect.height;
               const tooltipWidth = tooltipRect.width;
               const tooltipOffset = 15;
-
-              // マップラッパーのサイズとウィンドウ内での位置を取得
               const wrapperRect = mapWrapper.getBoundingClientRect();
-
               let finalTop = hoverInfo.y + tooltipOffset;
               let finalLeft = hoverInfo.x + tooltipOffset;
-
-              // --- 垂直方向（上下）のチェック ---
               if (finalTop + tooltipHeight > wrapperRect.height - 30) {
                   finalTop = hoverInfo.y - tooltipHeight - tooltipOffset;
               }
               if (finalTop < 10) {
                   finalTop = 10;
               }
-
-              // --- 水平方向（左右）のチェック ---
               if (finalLeft + tooltipWidth > wrapperRect.width - 10) {
                   finalLeft = hoverInfo.x - tooltipWidth - tooltipOffset;
               }
               if (finalLeft < 10) {
                   finalLeft = 10;
               }
-
               tooltipElement.style.top = `${finalTop}px`;
               tooltipElement.style.left = `${finalLeft}px`;
               tooltipElement.style.visibility = 'visible';
             });
-
         } else if (tooltipRef.current) {
-            tooltipElement.style.visibility = 'hidden';
+            tooltipRef.current.style.visibility = 'hidden';
         }
-  }, [hoverInfo, tooltipContent, isClickTooltipPinned]); // isClickTooltipPinned も依存
+  }, [hoverInfo, tooltipContent, isClickTooltipPinned]);
 
   // --- ホバー用ツールチップ ---
   const renderTooltip = () => {
         if (!tooltipContent) return null;
-
         const tooltipStyle: React.CSSProperties = {
             position: 'absolute',
             zIndex: 1002,
-            // ピン留めされていない (ホバー) 時だけ 'none'
             pointerEvents: isClickTooltipPinned ? 'auto' : 'none',
             transformOrigin: 'top left',
             visibility: 'hidden',
         };
-
         return (
             <div ref={tooltipRef} style={tooltipStyle}>
               {tooltipContent}
@@ -924,41 +848,101 @@ function MapDashboard() {
         );
   };
 
-  // --- レイヤー表示切り替えロジック ---
-  useEffect(() => {
+  // フィルタリングと表示ロジック
+
+  // フィルタと表示状態を適用するコアロジックを 'useCallback' でメモ化
+  const applyFiltersAndVisibility = useCallback(() => {
     const map = mapRef.current?.getMap();
-    if (!map || !map.isStyleLoaded()) {
-        return;
+    if (!map) return;
+
+    // 競合状態対策:
+    // 必要なレイヤー (layersToFilter[0]) が存在するか確認する
+    // !map.isStyleLoaded() も追加して、スタイルがロード中も待機
+    if (!map.isStyleLoaded() || !map.getLayer(layersToFilter[0])) {
+      // 警告メッセージをコメントアウト
+      // console.warn("applyFiltersAndVisibility: Style or layers not ready, retrying on next render.");
+      map.once('render', applyFiltersAndVisibility); // ★ここで再試行を予約
+      return;
     }
 
     try {
-        if (map.getLayer('tomtom-traffic-layer')) {
-            map.setLayoutProperty('tomtom-traffic-layer', 'visibility', isFlowVisible ? 'visible' : 'none');
-        }
+      // --- 1. 表示/非表示 (Visibility) ---
+      if (map.getLayer('tomtom-traffic-layer')) {
+          map.setLayoutProperty('tomtom-traffic-layer', 'visibility', isFlowVisible ? 'visible' : 'none');
+      }
+      const incidentLayerIds = [
+          'tomtom-traffic-incident-layer-outline',
+          'tomtom-traffic-incident-layer-dash'
+      ];
+      incidentLayerIds.forEach(layerId => {
+          if (map.getLayer(layerId)) {
+              map.setLayoutProperty(layerId, 'visibility', isIncidentsVisible ? 'visible' : 'none');
+          }
+      });
 
-        const incidentLayerIds = [
-            'tomtom-traffic-incident-layer-outline',
-            'tomtom-traffic-incident-layer-dash'
-        ];
+      // --- 2. 道路種別フィルタリング (Road Type Filtering) ---
+      let roadTypeFilter: any[] | null;
+      if (selectedRoadTypes.size === 0) {
+          roadTypeFilter = ['==', ['get', 'road_type'], "___NONE___"];
+      } else if (selectedRoadTypes.size === roadTypeData.length) {
+          roadTypeFilter = null; // フィルタなし (すべて表示)
+      } else {
+          const roadTypeMatchExpression = [
+              'match',
+              ['get', 'road_type'],
+              ...roadTypeMatchPairs, // [ 'Motorway', 0, 'International road', 1, ... ]
+              -1 // デフォルト値
+          ];
+          roadTypeFilter = [
+              'in',
+              roadTypeMatchExpression,
+              ['literal', Array.from(selectedRoadTypes)]
+          ];
+      }
 
-        incidentLayerIds.forEach(layerId => {
-            if (map.getLayer(layerId)) {
-                map.setLayoutProperty(layerId, 'visibility', isIncidentsVisible ? 'visible' : 'none');
-            }
-        });
+      // フィルタを全レイヤーに適用
+      layersToFilter.forEach(layerId => {
+          if (map.getLayer(layerId)) {
+              map.setFilter(layerId, roadTypeFilter);
+          } else {
+              throw new Error(`Layer ${layerId} not found during filter application.`);
+          }
+      });
 
     } catch (error) {
-        console.error("Error setting layer visibility (style might be changing):", error);
+        // 警告メッセージをコメントアウト
+        // console.warn("Error setting filter (retrying on next render):", error);
+        // map.once が重複しないように、既存のリスナーを削除してから追加する
+        map.off('render', applyFiltersAndVisibility);
+        map.once('render', applyFiltersAndVisibility);
     }
-  }, [isFlowVisible, isIncidentsVisible, currentMapStyleKey]);
+  }, [isFlowVisible, isIncidentsVisible, selectedRoadTypes]); // 依存配列
+
+  // チェックボックスのON/OFFなど、state変更時にフィルタを即時適用する
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    // マップがロード済みの場合にのみ実行
+    if (map && map.isStyleLoaded()) {
+      applyFiltersAndVisibility();
+    }
+  }, [isFlowVisible, isIncidentsVisible, selectedRoadTypes, applyFiltersAndVisibility]);
+
+  // ベースマップ切替 ('onStyleData') ハンドラ
+  const handleStyleLoadOrChange = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (map) {
+      // スタイルがロードされ始めたら、すぐに適用を試みる
+      // 内部の 'render' 再試行ロジックが競合状態を処理する
+      applyFiltersAndVisibility();
+    }
+  }, [applyFiltersAndVisibility]); //
+
 
   // --- ズーム/ピッチ コントロール関数 ---
   const handleZoomIn = () => mapRef.current?.zoomIn();
   const handleZoomOut = () => mapRef.current?.zoomOut();
-
   const PITCH_LEVELS = [0, 30, 45, 60];
   const currentPitch = viewState.pitch || 0;
-
   const handlePitchUp = () => {
       const nextPitch = PITCH_LEVELS.find(p => p > currentPitch);
       mapRef.current?.easeTo({ pitch: nextPitch !== undefined ? nextPitch : PITCH_LEVELS[PITCH_LEVELS.length - 1] });
@@ -967,8 +951,6 @@ function MapDashboard() {
       const prevPitch = [...PITCH_LEVELS].reverse().find(p => p < currentPitch);
       mapRef.current?.easeTo({ pitch: prevPitch !== undefined ? prevPitch : PITCH_LEVELS[0] });
   };
-
-  // ダークテーマ
   const disabledControlButtonStyle: React.CSSProperties = {
       ...controlButtonStyle,
       cursor: 'not-allowed',
@@ -985,16 +967,13 @@ function MapDashboard() {
         const errData = await response.json();
         throw new Error(errData.detail || "Location not found");
       }
-
       const data = await response.json();
-
       if (data.latitude && data.longitude) {
         // マップを指定の座標に移動 (flyTo)
-        // flyTo が完了するのを待つ
         await mapRef.current?.flyTo({
           center: [data.longitude, data.latitude],
-          zoom: INITIAL_VIEW_STATE.zoom, // 地名検索後の適切なズームレベル
-          pitch: 0, // 検索時は真上から
+          zoom: INITIAL_VIEW_STATE.zoom,
+          pitch: 0,
           bearing: 0,
           essential: true,
         });
@@ -1006,6 +985,20 @@ function MapDashboard() {
       console.error("Search error:", err);
       setError(err.message || "Failed to geocode location");
     }
+  };
+
+
+  // --- 道路種別 (Road Type) 切り替えハンドラ ---
+  const handleToggleRoadType = (typeId: number) => {
+    setSelectedRoadTypes(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(typeId)) {
+        newSet.delete(typeId);
+      } else {
+        newSet.add(typeId);
+      }
+      return newSet;
+    });
   };
 
 
@@ -1027,7 +1020,6 @@ function MapDashboard() {
       <div style={{
           position: 'relative',
           height: '100%',
-          // 'isSidebarOpen' ではなく 'isSidebarPinned' (ピン留め状態) にのみ依存させる
           marginLeft: isSidebarPinned ? '220px' : '52px',
           transition: 'margin-left 0.2s ease-in-out',
       }}>
@@ -1042,7 +1034,7 @@ function MapDashboard() {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: '5px' // 検索バーとエラー間の隙間
+            gap: '5px'
         }}>
             {/* 検索バー */}
             <SearchBar
@@ -1057,11 +1049,11 @@ function MapDashboard() {
                 backgroundColor: 'rgba(255, 0, 0, 0.8)', color: 'white', padding: '10px 15px',
                 borderRadius: '5px',
                 maxWidth: '400px',
-                textAlign: 'left', // 左揃えに変更
+                textAlign: 'left',
                 boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-                display: 'flex', // アイコンとテキストを横に並べる
+                display: 'flex',
                 alignItems: 'center',
-                gap: '8px' // アイコンとテキストの隙間
+                gap: '8px'
               }}>
                 <BiErrorAlt size={20} />
                 <span>{error}</span>
@@ -1078,16 +1070,13 @@ function MapDashboard() {
           style={{ width: '100%', height: '100%' }}
           mapStyle={mapStyleUrl}
           initialViewState={INITIAL_VIEW_STATE}
-          onLoad={handleMapLoad}
           attributionControl={true}
-          interactiveLayerIds={[
-              'tomtom-traffic-layer',
-              'tomtom-traffic-incident-layer-outline',
-              'tomtom-traffic-incident-layer-dash'
-          ]}
+          interactiveLayerIds={layersToFilter}
           onMouseMove={handleMouseMove}
           onClick={handleClick}
           onMouseOut={handleMouseOut}
+          onLoad={handleStyleLoadOrChange}
+          onStyleData={handleStyleLoadOrChange}
         >
             <ScaleControl unit="metric" position="bottom-left" />
         </Map>
@@ -1107,7 +1096,6 @@ function MapDashboard() {
         }}>
           {/* 1. Base Map */}
           <BaseMapSwitcher currentStyle={currentMapStyleKey} onChangeStyle={setCurrentMapStyleKey} />
-
           {/* 2. Layers */}
           <div style={{ position: 'relative' }}>
               <button
@@ -1123,6 +1111,8 @@ function MapDashboard() {
                       onToggleFlow={() => setIsFlowVisible(!isFlowVisible)}
                       isIncidentsVisible={isIncidentsVisible}
                       onToggleIncidents={() => setIsIncidentsVisible(!isIncidentsVisible)}
+                      selectedRoadTypes={selectedRoadTypes}
+                      onToggleRoadType={handleToggleRoadType}
                   />
               )}
           </div>
@@ -1131,7 +1121,7 @@ function MapDashboard() {
         {/* --- Bottom Right UI Group --- */}
         <div style={{
             position: 'absolute',
-            bottom: '40px', // クレジットとのマージン
+            bottom: '40px',
             right: '10px',
             zIndex: 1,
             display: 'flex',
@@ -1141,7 +1131,6 @@ function MapDashboard() {
         }}>
             {/* 1. Legend */}
             <LegendControl />
-
             {/* 2. Pitch */}
             <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
                 <button
@@ -1161,7 +1150,6 @@ function MapDashboard() {
                     <VscTriangleDown size={20} />
                 </button>
             </div>
-
             {/* 3. Coords + Zoom Group */}
             <div style={{
                 display: 'flex',
@@ -1171,7 +1159,6 @@ function MapDashboard() {
             }}>
                 {/* 3a. Coordinates */}
                 <CursorCoordinates coords={cursorCoords} />
-
                 {/* 3b. Zoom Controls */}
                 <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
                     <button onClick={handleZoomIn} style={{...controlButtonStyle, borderRadius: '4px 4px 0 0', borderTop: '1px solid #555'}} title="Zoom in">

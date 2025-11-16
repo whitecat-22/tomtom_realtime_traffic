@@ -167,6 +167,9 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
     scheme = request.url.scheme or "http"
     base_url = f"{scheme}://{host}:{port}"
 
+    # クエリパラメータなしの静的なURL (★修正)
+    # roadTypes クエリはフロントエンドから送信されなくなり、
+    # このエンドポイント (flow-tiles) もクエリを処理しなくなったため
     traffic_flow_tile_url = f"{base_url}/api/traffic/flow-tiles/{{z}}/{{x}}/{{y}}.pbf"
     traffic_incident_tile_url = f"{base_url}/api/traffic/incident-tiles/{{z}}/{{x}}/{{y}}.pbf"
 
@@ -182,7 +185,7 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
             # 2. 交通流タイルソース
             "tomtom-traffic-flow": {
                 "type": "vector",
-                "tiles": [traffic_flow_tile_url],
+                "tiles": [traffic_flow_tile_url], # 静的なURL
                 "maxzoom": 22,
                 "attribution": '&copy; TomTom / &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             },
@@ -356,18 +359,28 @@ async def get_map_style_satellite(request: Request):
 
 
 @app.get("/api/traffic/flow-tiles/{z}/{x}/{y}.pbf")  # パス名を flow-tiles に変更
+# (★修正 Point 1) request: Request は不要になった
 async def get_traffic_flow_tile(z: int, x: int, y: int):
     """TomTom Traffic Flow Tile APIをプロキシする"""
-    road_types_param = "[0,1,2,3,4,5,6]"
+
+    # --- (★修正 Point 1) ---
+    # フロントエンドからの roadTypes クエリを無視し、常に全種別を要求する
+    # これにより、TomTom APIへのコールを最適化し、
+    # フィルタリングはすべてクライアントサイド (MapLibre) で行う
+    road_types_param = "[0,1,2,3,4,5,6,7,8]"
+    # --- 修正ここまで ---
+
     tags_param = "[road_type,traffic_level,traffic_road_coverage,left_hand_traffic,road_closure,road_category,road_subcategory]"
 
     log_params_str = f"roadTypes={road_types_param}&tags={tags_param}"
     # logger.info(f"Calling TomTom Flow Tile API: /traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.pbf with {log_params_str}")
+    logger.debug(f"Calling TomTom Flow Tile API: /traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.pbf with {log_params_str}")
+
 
     api_path = f"/traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.pbf"
 
     params = {
-        "roadTypes": road_types_param,
+        "roadTypes": road_types_param, # 常に全種別
         "tags": tags_param
     }
 
@@ -400,9 +413,10 @@ async def get_traffic_flow_tile(z: int, x: int, y: int):
 async def get_traffic_incident_tile(z: int, x: int, y: int):
     """TomTom Traffic Incident Tile API (v4) をプロキシする"""
 
-    # ドキュメントに基づき、Flow tag と POI tag を指定 (type を削除)
-    # tags_param = "[]"  # "[icon_category, description, delay, road_type, left_hand_traffic, magnitude, traffic_road_coverage, clustered]" #, end_date, id, probability_of_occurrence, number_of_reports, last_report_time, road_category, road_subcategory]"
-    #tags_param = "[icon_category,description,delay,road_type,left_hand_traffic,magnitude,traffic_road_coverage,clustered]"
+    # (変更なし)
+    # インシデントAPIは roadTypes パラメータをサポートしていないため、
+    # 常にすべて取得し、フロントエンドでフィルタリングする。
+
     tags_param = "[icon_category,description,delay,road_type,left_hand_traffic,magnitude,traffic_road_coverage,clustered,end_date,id,probability_of_occurrence,number_of_reports,last_report_time,road_category,road_subcategory]"
     language_param = "en-US"
     params = {
