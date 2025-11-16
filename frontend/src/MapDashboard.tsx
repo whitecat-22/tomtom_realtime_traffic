@@ -593,13 +593,21 @@ const formatFlowDetailsContent = (
   onClose: () => void
 ): React.ReactNode => {
   const style: React.CSSProperties = {
-    fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '250px',
+    fontFamily: 'sans-serif', fontSize: '12px',
+    maxWidth: '320px',
     backgroundColor: 'rgba(0,0,0,0.7)', color: 'white',
     padding: '5px 8px', borderRadius: '3px',
     position: 'relative',
   };
+
   const title = (
-      <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+      <strong style={{
+          fontSize: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          marginBottom: '5px',
+          paddingRight: '20px'
+      }}>
           <FaCar size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Flow Segment Details
       </strong>
   );
@@ -624,7 +632,7 @@ const formatFlowDetailsContent = (
   );
 };
 
-// --- (★ここから修正) クリック用: インシデント詳細 (Incident Details) ---
+// --- クリック用: インシデント詳細 (Incident Details) ---
 const formatIncidentDetailsContent = (
   tileProps: any,
   apiData: any,
@@ -632,18 +640,24 @@ const formatIncidentDetailsContent = (
   onClose: () => void
 ): React.ReactNode => {
   const style: React.CSSProperties = {
-    fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '300px', // 少し幅を広げる
+    fontFamily: 'sans-serif', fontSize: '12px', maxWidth: '300px',
     backgroundColor: 'rgba(255,249,196,0.9)', color: 'black',
     padding: '5px 8px', borderRadius: '3px', border: '1px solid #E0E0E0',
     position: 'relative',
   };
   const title = (
-      <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+      <strong style={{
+          fontSize: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          marginBottom: '5px',
+          paddingRight: '20px'
+      }}>
           <LuTriangleAlert size={16} style={{ verticalAlign: 'middle', marginRight: '5px' }} /> Incident Details
       </strong>
   );
 
-  // (★修正) API (v5) からの詳細データを取得 (main.pyの 'fields' パラメータに基づく)
+  // API (v5) からの詳細データを取得 (main.pyの 'fields' パラメータに基づく)
   const detail = apiData?.incidents?.[0]?.properties;
 
   return (
@@ -675,7 +689,6 @@ const formatIncidentDetailsContent = (
     </div>
   );
 };
-// --- (★修正ここまで) ---
 
 // --- roadTypeData に基づく 'match' 式のペアをここで生成
 const roadTypeMatchPairs = roadTypeData.flatMap(rt => [rt.label, rt.id]);
@@ -814,7 +827,7 @@ function MapDashboard() {
         setIsClickTooltipPinned(false);
         setTooltipContent(null);
     }
-  }, []); // viewState.zoom への依存を削除 (eventからmapを取得)
+  }, []);
 
   // --- エラー表示の5秒タイマー ---
   useEffect(() => {
