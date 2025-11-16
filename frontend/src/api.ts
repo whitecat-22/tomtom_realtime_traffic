@@ -1,7 +1,6 @@
 import axios from 'axios';
 
 // バックエンド (FastAPI) のベースURL
-// (api.ts は /api プレフィックスを管理しないように変更)
 const API_BASE_URL = 'http://127.0.0.1:8001';
 
 const client = axios.create({
@@ -22,18 +21,41 @@ client.interceptors.response.use(response => response.data, handleError);
 
 export const api = {
   /**
-   * 交通インシデント（事故・規制）データを取得する
-   * @param bbox 表示領域 (minLon,minLat,maxLon,maxLat)
-   * @param zoom 現在のズームレベル
+   * (未使用)
    */
   getTrafficIncidents: (bbox: string, zoom: number) => {
     return client.get('/api/traffic/incidents', {
       params: {
         bbox: bbox,
-        zoom: zoom, // FastAPI側では受け取るが、TomTom API v5 には渡されない
+        zoom: zoom,
       },
     });
   },
-  
-  // getConfig (APIキー取得) は削除
+
+  /**
+   * Flow Segment Data (v4) API を呼び出す
+   * @param z ズームレベル
+   * @param lat 緯度
+   * @param lon 経度
+   */
+  getFlowSegmentData: (z: number, lat: number, lon: number) => {
+    // main.py のパス定義 /api/traffic/flow-segment/absolute/{z}/json に合わせる
+    const apiPath = `/api/traffic/flow-segment/absolute/${z}/json`;
+
+    return client.get(apiPath, {
+      params: {
+        lat: lat,
+        lon: lon,
+      },
+    });
+  },
+
+  /**
+   * Incident Details (v5) API を呼び出す
+   * @param id インシデントID (v4タイルから取得)
+   */
+  getIncidentDetails: (id: string) => {
+    return client.get(`/api/traffic/incident-detail/${id}`);
+  },
+
 };
