@@ -279,16 +279,8 @@ const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
     overflowY: 'auto',
   }}>
     <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', borderBottom: '1px solid #555', paddingBottom: '4px', color: 'white' }}>Layers</h4>
+
     <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'white' }}>
-      <input
-        type="checkbox"
-        checked={isFlowVisible}
-        onChange={onToggleFlow}
-        style={{ marginRight: '5px', accentColor: 'white' }}
-      />
-      Traffic Flow
-    </label>
-    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginTop: '5px', color: 'white' }}>
       <input
         type="checkbox"
         checked={isIncidentsVisible}
@@ -297,34 +289,50 @@ const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
       />
       Traffic Incidents
     </label>
-    <h5 style={{
-      margin: '12px 0 5px 0',
-      fontSize: '13px',
-      borderBottom: '1px solid #444',
-      paddingBottom: '3px',
-      color: 'white'
-    }}>
-      Road Types
-    </h5>
-    {roadTypeData.map((rt) => (
-      <label key={rt.id} style={{
-        cursor: isFlowVisible ? 'pointer' : 'not-allowed',
-        display: 'flex',
-        alignItems: 'center',
-        marginTop: '4px',
-        color: isFlowVisible ? 'white' : '#888',
-        fontSize: '12px'
+
+    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginTop: '5px', color: 'white' }}>
+      <input
+        type="checkbox"
+        checked={isFlowVisible}
+        onChange={onToggleFlow}
+        style={{ marginRight: '5px', accentColor: 'white' }}
+      />
+      Traffic Flow
+    </label>
+
+    {/* Road Types をインデントするためのラッパーdiv を追加 */}
+    <div style={{ paddingLeft: '20px', marginTop: '5px' }}>
+      <h5 style={{
+        margin: '5px 0 5px 0', // マージン調整
+        fontSize: '13px',
+        borderBottom: '1px solid #444',
+        paddingBottom: '3px',
+        color: isFlowVisible ? 'white' : '#888', // Flowが無効ならタイトルもグレーアウト
       }}>
-        <input
-          type="checkbox"
-          checked={selectedRoadTypes.has(rt.id)}
-          onChange={() => onToggleRoadType(rt.id)}
-          disabled={!isFlowVisible}
-          style={{ marginRight: '5px', accentColor: 'white' }}
-        />
-        {rt.label}
-      </label>
-    ))}
+        Road Types
+      </h5>
+
+      {roadTypeData.map((rt) => (
+        <label key={rt.id} style={{
+          cursor: isFlowVisible ? 'pointer' : 'not-allowed',
+          display: 'flex',
+          alignItems: 'center',
+          marginTop: '4px',
+          color: isFlowVisible ? 'white' : '#888',
+          fontSize: '12px'
+        }}>
+          <input
+            type="checkbox"
+            checked={selectedRoadTypes.has(rt.id)}
+            onChange={() => onToggleRoadType(rt.id)}
+            disabled={!isFlowVisible}
+            style={{ marginRight: '5px', accentColor: 'white' }}
+          />
+          {rt.label}
+        </label>
+      ))}
+    </div>
+
   </div>
 );
 
@@ -848,7 +856,7 @@ function MapDashboard() {
         );
   };
 
-  // フィルタリングと表示ロジック
+  // --- フィルタリングと表示ロジック ---
 
   // フィルタと表示状態を適用するコアロジックを 'useCallback' でメモ化
   const applyFiltersAndVisibility = useCallback(() => {
@@ -856,8 +864,6 @@ function MapDashboard() {
     if (!map) return;
 
     // 競合状態対策:
-    // 必要なレイヤー (layersToFilter[0]) が存在するか確認する
-    // !map.isStyleLoaded() も追加して、スタイルがロード中も待機
     if (!map.isStyleLoaded() || !map.getLayer(layersToFilter[0])) {
       // 警告メッセージをコメントアウト
       // console.warn("applyFiltersAndVisibility: Style or layers not ready, retrying on next render.");
@@ -912,7 +918,6 @@ function MapDashboard() {
     } catch (error) {
         // 警告メッセージをコメントアウト
         // console.warn("Error setting filter (retrying on next render):", error);
-        // map.once が重複しないように、既存のリスナーを削除してから追加する
         map.off('render', applyFiltersAndVisibility);
         map.once('render', applyFiltersAndVisibility);
     }
@@ -921,7 +926,6 @@ function MapDashboard() {
   // チェックボックスのON/OFFなど、state変更時にフィルタを即時適用する
   useEffect(() => {
     const map = mapRef.current?.getMap();
-    // マップがロード済みの場合にのみ実行
     if (map && map.isStyleLoaded()) {
       applyFiltersAndVisibility();
     }
@@ -931,8 +935,6 @@ function MapDashboard() {
   const handleStyleLoadOrChange = useCallback(() => {
     const map = mapRef.current?.getMap();
     if (map) {
-      // スタイルがロードされ始めたら、すぐに適用を試みる
-      // 内部の 'render' 再試行ロジックが競合状態を処理する
       applyFiltersAndVisibility();
     }
   }, [applyFiltersAndVisibility]); //
@@ -969,7 +971,6 @@ function MapDashboard() {
       }
       const data = await response.json();
       if (data.latitude && data.longitude) {
-        // マップを指定の座標に移動 (flyTo)
         await mapRef.current?.flyTo({
           center: [data.longitude, data.latitude],
           zoom: INITIAL_VIEW_STATE.zoom,
@@ -977,7 +978,7 @@ function MapDashboard() {
           bearing: 0,
           essential: true,
         });
-        setSearchQuery(""); // アニメーション完了後にクエリをクリア
+        setSearchQuery("");
       } else {
         throw new Error("Invalid coordinates received from server");
       }
