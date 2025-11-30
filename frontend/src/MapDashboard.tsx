@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Map, MapRef, ViewState, ScaleControl } from 'react-map-gl/maplibre';
+import { Map, ScaleControl, Source, Layer } from 'react-map-gl/maplibre';
+import type { MapRef, ViewState } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // --- api.ts をインポート
 import { api } from './api';
@@ -53,6 +54,67 @@ const roadTypeData = [
   { id: 8, label: 'Other roads' },
 ];
 
+/*
+// --- 天気図レイヤー定義 ---
+const weatherLayers = [
+  { id: 'clouds', label: 'Clouds', url: 'https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=' },
+  { id: 'precipitation', label: 'Precipitation', url: 'https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=' },
+  { id: 'pressure', label: 'Sea Level Pressure', url: 'https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid=' },
+  { id: 'wind', label: 'Wind Speed', url: 'https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=' },
+  { id: 'temp', label: 'Temperature', url: 'https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=' },
+];
+*/
+
+/*
+const OWM_API_KEY = import.meta.env.VITE_OWM_API_KEY || '';
+*/
+const WEATHERAPI_KEY = import.meta.env.VITE_WEATHERAPI_KEY || '';
+/*
+const TOMORROW_IO_API_KEY = import.meta.env.VITE_TOMORROW_IO_API_KEY || '';
+*/
+
+/*
+// --- Tomorrow.io レイヤー定義 ---
+const tomorrowIoLayers = [
+  { id: 'ti-temperature', field: 'temperature', label: 'Temperature' },
+  { id: 'ti-windSpeed', field: 'windSpeed', label: 'Wind Speed' },
+  { id: 'ti-pressureSeaLevel', field: 'pressureSeaLevel', label: 'Pressure (Sea Level)' },
+  { id: 'ti-precipitationType', field: 'precipitationType', label: 'Precipitation Type' },
+  { id: 'ti-precipitationIntensity', field: 'precipitationIntensity', label: 'Precipitation Intensity' },
+  { id: 'ti-precipitationProbability', field: 'precipitationProbability', label: 'Precipitation Probability' },
+  { id: 'ti-rainIntensity', field: 'rainIntensity', label: 'Rain Intensity' },
+  { id: 'ti-rainAccumulation', field: 'rainAccumulation', label: 'Rain Accumulation' },
+  { id: 'ti-thunderstormProbability', field: 'thunderstormProbability', label: 'Thunderstorm Probability' },
+  { id: 'ti-snowIntensity', field: 'snowIntensity', label: 'Snow Intensity' },
+  { id: 'ti-snowAccumulation', field: 'snowAccumulation', label: 'Snow Accumulation' },
+  { id: 'ti-snowDepth', field: 'snowDepth', label: 'Snow Depth' },
+  { id: 'ti-visibility', field: 'visibility', label: 'Visibility' },
+];
+*/
+
+// --- WeatherAPI.com レイヤー定義 ---
+// ドキュメント(画像)に基づき、APIキー不要の新しいエンドポイント形式に対応
+// URLテンプレート内の {date} と {hour} はレンダリング時に置換する
+const weatherApiLayers = [
+  { id: 'wa-temp', label: 'Temperature', url: 'https://weathermaps.weatherapi.com/tmp2m/tiles/{date}{hour}/{z}/{x}/{y}.png' },
+  { id: 'wa-precip', label: 'Precipitation', url: 'https://weathermaps.weatherapi.com/precip/tiles/{date}{hour}/{z}/{x}/{y}.png' },
+  { id: 'wa-wind', label: 'Wind Speed', url: 'https://weathermaps.weatherapi.com/wind/tiles/{date}{hour}/{z}/{x}/{y}.png' },
+  { id: 'wa-pressure', label: 'Pressure (Sea Level)', url: 'https://weathermaps.weatherapi.com/pressure/tiles/{date}{hour}/{z}/{x}/{y}.png' },
+];
+
+// 現在のUTC日時を取得してパラメータ用の文字列を返すヘルパー
+const getWeatherMapParams = () => {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  const hour = String(now.getUTCHours()).padStart(2, '0');
+  return {
+      date: `${year}${month}${day}`,
+      hour: hour
+  };
+};
+
 // フィルタ対象のレイヤーIDをコンポーネント外の定数として定義
 const layersToFilter = [
   'tomtom-traffic-layer',
@@ -62,12 +124,13 @@ const layersToFilter = [
 
 
 // --- 開閉式凡例コンポーネント ---
-const LegendControl = () => {
+const LegendControl = ({ visibleLayers }: { visibleLayers: { [key: string]: boolean } }) => {
   const [isLegendOpen, setIsLegendOpen] = useState(false);
   const openStyle: React.CSSProperties = {
     backgroundColor: 'rgba(30,30,30,0.8)', color: 'white', border: '1px solid #555',
     padding: '10px', borderRadius: '5px', zIndex: 1, fontFamily: 'sans-serif',
     fontSize: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', cursor: 'pointer',
+    maxHeight: '300px', overflowY: 'auto',
   };
   const closedStyle: React.CSSProperties = {
     backgroundColor: '#333', color: 'white', border: '1px solid #555',
@@ -75,10 +138,65 @@ const LegendControl = () => {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     boxSizing: 'border-box', borderRadius: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
   };
+
+  // WeatherAPI.com 凡例データ (CSS Gradients based on reference images)
+  const weatherLegends: Record<string, { title: string, gradient: string, ticks: { label: string, percent: number }[] }> = {
+    'wa-temp': {
+      title: 'Temperature (°C)',
+      // Blue -> Cyan -> Green -> Yellow -> Red
+      gradient: 'linear-gradient(to right, #000080 0%, #0000FF 25%, #00FFFF 45%, #00FF00 60%, #FFFF00 75%, #FFA500 85%, #FF0000 100%)',
+      ticks: [
+        { label: '-50', percent: 0 },
+        { label: '-20', percent: 33 },
+        { label: '0', percent: 55 },
+        { label: '20', percent: 77 },
+        { label: '40', percent: 100 }
+      ]
+    },
+    'wa-precip': {
+      title: 'Precipitation (mm)',
+      // Light Blue -> Blue -> Green -> Yellow -> Orange -> Red
+      gradient: 'linear-gradient(to right, #E0F7FA 0%, #2196F3 20%, #4CAF50 40%, #FFEB3B 60%, #FF9800 80%, #F44336 100%)',
+      ticks: [
+        { label: '0', percent: 0 },
+        { label: '5', percent: 16 },
+        { label: '10', percent: 33 },
+        { label: '20', percent: 66 },
+        { label: '30', percent: 100 }
+      ]
+    },
+    'wa-wind': {
+      title: 'Wind Speed (m/s)',
+      // White -> Blue -> Green -> Yellow -> Red -> Purple
+      gradient: 'linear-gradient(to right, #FFFFFF 0%, #00FFFF 15%, #0000FF 30%, #00FF00 50%, #FFFF00 70%, #FF0000 85%, #800080 100%)',
+      ticks: [
+        { label: '0', percent: 0 },
+        { label: '10', percent: 20 },
+        { label: '20', percent: 40 },
+        { label: '30', percent: 60 },
+        { label: '40', percent: 80 },
+        { label: '50', percent: 100 }
+      ]
+    },
+    'wa-pressure': {
+      title: 'Pressure (hPa)',
+      // Purple -> Blue -> Light Blue -> White -> Yellow -> Orange -> Red
+      gradient: 'linear-gradient(to right, #800080 0%, #0000FF 20%, #00BFFF 40%, #FFFFFF 50%, #FFFF00 60%, #FFA500 80%, #FF0000 100%)',
+      ticks: [
+        { label: '940', percent: 0 },
+        { label: '980', percent: 33 },
+        { label: '1000', percent: 50 },
+        { label: '1020', percent: 66 },
+        { label: '1060', percent: 100 }
+      ]
+    }
+  };
+
   if (isLegendOpen) {
     return (
       <div style={openStyle} onClick={() => setIsLegendOpen(false)}>
-        <h4 style={{ margin: '0 0 5px 0', color: 'white' }}>Speed (km/h)</h4>
+        {/* Speed Legend (Always available if flow is visible, but here we just show it) */}
+        <h4 style={{ margin: '0 0 5px 0', color: 'white', borderBottom: '1px solid #555', paddingBottom: '2px' }}>Traffic Speed</h4>
         {legendData.map((item) => (
           <div key={item.speed} style={{ marginBottom: '3px' }}>
             <span style={{
@@ -88,6 +206,45 @@ const LegendControl = () => {
             <span>{item.speed}</span>
           </div>
         ))}
+
+        {/* Weather Legends */}
+        {Object.keys(weatherLegends).map(key => {
+          if (visibleLayers[key]) {
+            const legend = weatherLegends[key];
+            return (
+              <div key={key} style={{ marginTop: '15px' }}>
+                <h4 style={{ margin: '0 0 5px 0', color: 'white', borderBottom: '1px solid #555', paddingBottom: '2px' }}>{legend.title}</h4>
+                <div style={{ position: 'relative', height: '35px', marginTop: '5px', width: '200px' }}>
+                  {/* Gradient Bar */}
+                  <div style={{
+                    height: '15px',
+                    width: '100%',
+                    background: legend.gradient,
+                    borderRadius: '2px',
+                    border: '1px solid #777'
+                  }}></div>
+                  {/* Ticks and Labels */}
+                  {legend.ticks.map((tick, idx) => (
+                    <div key={idx} style={{
+                      position: 'absolute',
+                      left: `${tick.percent}%`,
+                      top: '18px',
+                      transform: 'translateX(-50%)',
+                      textAlign: 'center',
+                      width: '30px' // Ensure width for centering
+                    }}>
+                      <div style={{
+                        width: '1px', height: '3px', background: '#aaa', margin: '0 auto 2px auto'
+                      }}></div>
+                      <div style={{ fontSize: '9px', color: '#ddd' }}>{tick.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })}
       </div>
     );
   }
@@ -132,7 +289,7 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
 const baseMapUrls: Record<BaseMapStyleKey, string> = {
   positron: `${apiBaseUrl}/api/map/style.json`,
   darkmatter: `${apiBaseUrl}/api/map/style-dark.json`,
-  osmStandard: `${apiBaseUrl}/api/map/style-osm-standard.json`,
+  'osm-standard': `${apiBaseUrl}/api/map/style-osm-standard.json`,
   satellite: `${apiBaseUrl}/api/map/style-satellite.json`,
 };
 
@@ -175,7 +332,7 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({ currentStyle, onChang
           {(Object.keys(baseMapUrls) as BaseMapStyleKey[]).map((key) => {
               const label = key === 'positron' ? 'Light' :
                             key === 'darkmatter' ? 'Dark' :
-                            key === ('osmStandard' || 'osm-standard') ? 'OSM' :
+                            key === 'osm-standard' ? 'OSM' :
                             key === 'satellite' ? 'Satellite' : key;
               return (
                   <label key={key} style={{
@@ -205,10 +362,13 @@ interface LayerMenuPanelProps {
   onToggleIncidents: () => void;
   selectedRoadTypes: Set<number>;
   onToggleRoadType: (id: number) => void;
+  weatherLayerVisibility: { [key: string]: boolean };
+  onToggleWeatherLayer: (id: string) => void;
 }
 const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
   isFlowVisible, onToggleFlow, isIncidentsVisible, onToggleIncidents,
-  selectedRoadTypes, onToggleRoadType
+  selectedRoadTypes, onToggleRoadType,
+  weatherLayerVisibility, onToggleWeatherLayer
 }) => (
   <div style={{
     position: 'absolute', top: '0', right: '40px', backgroundColor: 'rgba(30,30,30,0.8)',
@@ -254,6 +414,84 @@ const LayerMenuPanel: React.FC<LayerMenuPanelProps> = ({
         </label>
       ))}
     </div>
+    {/*
+    <div style={{ paddingLeft: '20px', marginTop: '10px' }}>
+      <h5 style={{
+        margin: '5px 0 5px 0', fontSize: '13px', borderBottom: '1px solid #444',
+        paddingBottom: '3px', color: 'white',
+      }}>
+        OpenWeatherMap
+      </h5>
+      {weatherLayers.map((layer) => (
+        <label key={layer.id} style={{
+          cursor: 'pointer', display: 'flex',
+          alignItems: 'center', marginTop: '4px', color: 'white',
+          fontSize: '12px'
+        }}>
+          <input
+            type="checkbox" checked={weatherLayerVisibility[layer.id]}
+            onChange={() => onToggleWeatherLayer(layer.id)}
+            style={{ marginRight: '5px', accentColor: 'white' }}
+          />
+          {layer.label}
+        </label>
+      ))}
+    </div>
+    */}
+    <div style={{ paddingLeft: '20px', marginTop: '10px' }}>
+      <h5 style={{
+        margin: '5px 0 5px 0', fontSize: '13px', borderBottom: '1px solid #444',
+        paddingBottom: '3px', color: 'white',
+      }}>
+        Weather {/* WeatherAPI.com */}
+      </h5>
+      <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginTop: '4px', color: 'white', fontSize: '12px' }}>
+          <input
+            type="checkbox" checked={weatherLayerVisibility['wa-alerts']}
+            onChange={() => onToggleWeatherLayer('wa-alerts')}
+            style={{ marginRight: '5px', accentColor: 'white' }}
+          />
+          Weather Alerts (Center)
+      </label>
+      {weatherApiLayers.map((layer) => (
+        <label key={layer.id} style={{
+          cursor: 'pointer', display: 'flex',
+          alignItems: 'center', marginTop: '4px', color: 'white',
+          fontSize: '12px'
+        }}>
+          <input
+            type="checkbox" checked={weatherLayerVisibility[layer.id]}
+            onChange={() => onToggleWeatherLayer(layer.id)}
+            style={{ marginRight: '5px', accentColor: 'white' }}
+          />
+          {layer.label}
+        </label>
+      ))}
+    </div>
+    {/*
+    <div style={{ paddingLeft: '20px', marginTop: '10px' }}>
+      <h5 style={{
+        margin: '5px 0 5px 0', fontSize: '13px', borderBottom: '1px solid #444',
+        paddingBottom: '3px', color: 'white',
+      }}>
+        Tomorrow.io
+      </h5>
+      {tomorrowIoLayers.map((layer) => (
+        <label key={layer.id} style={{
+          cursor: 'pointer', display: 'flex',
+          alignItems: 'center', marginTop: '4px', color: 'white',
+          fontSize: '12px'
+        }}>
+          <input
+            type="checkbox" checked={weatherLayerVisibility[layer.id]}
+            onChange={() => onToggleWeatherLayer(layer.id)}
+            style={{ marginRight: '5px', accentColor: 'white' }}
+          />
+          {layer.label}
+        </label>
+      ))}
+    </div>
+    */}
   </div>
 );
 
@@ -563,7 +801,7 @@ const formatErrorContent = (error: any, isPinned: boolean, onClose: () => void):
       errorMessage = error.message; // ネットワークエラーなど
     }
   } catch (e) {
-     errorMessage = "An unknown error occurred while formatting the error message.";
+    errorMessage = "An unknown error occurred while formatting the error message.";
   }
 
   return (
@@ -792,6 +1030,38 @@ function MapDashboard() {
   const [selectedRoadTypes, setSelectedRoadTypes] = useState<Set<number>>(
     new Set(roadTypeData.map(rt => rt.id))
   );
+  const [weatherLayerVisibility, setWeatherLayerVisibility] = useState<{ [key: string]: boolean }>({
+    /*
+    clouds: false,
+    precipitation: false,
+    pressure: false,
+    wind: false,
+    temp: false,
+    */
+    'wa-temp': false,
+    'wa-precip': false,
+    'wa-wind': false,
+    'wa-pressure': false,
+    'wa-alerts': false,
+    /*
+    'ti-temperature': false,
+    'ti-windSpeed': false,
+    'ti-pressureSeaLevel': false,
+    'ti-precipitationType': false,
+    'ti-precipitationIntensity': false,
+    'ti-precipitationProbability': false,
+    'ti-rainIntensity': false,
+    'ti-rainAccumulation': false,
+    'ti-thunderstormProbability': false,
+    'ti-snowIntensity': false,
+    'ti-snowAccumulation': false,
+    'ti-snowDepth': false,
+    'ti-visibility': false,
+    */
+  });
+  const [alertsData, setAlertsData] = useState<any>(null);
+  const [expandedAlertIndices, setExpandedAlertIndices] = useState<Set<number>>(new Set());
+  // const [currentIsoTime, setCurrentIsoTime] = useState(new Date().toISOString());
   const [isSidebarPinned, setIsSidebarPinned] = useState(false);
   const [isSidebarHoverOpen, setIsSidebarHoverOpen] = useState(false);
   const isSidebarOpen = isSidebarPinned || isSidebarHoverOpen;
@@ -805,6 +1075,49 @@ function MapDashboard() {
   const handleMapIdle = useCallback(() => {
     //
   }, []);
+
+  // --- 時刻更新 (Tomorrow.io用 - コメントアウト) ---
+  /*
+  useEffect(() => {
+      // 15分ごとに時刻を更新してタイルをリフレッシュ
+      const interval = setInterval(() => {
+          setCurrentIsoTime(new Date().toISOString());
+      }, 15 * 60 * 1000);
+      return () => clearInterval(interval);
+  }, []);
+  */
+
+  // --- Alerts 取得ロジック ---
+  useEffect(() => {
+    if (!weatherLayerVisibility['wa-alerts']) {
+        setAlertsData(null);
+        return;
+    }
+    const fetchAlerts = async () => {
+        const center = mapRef.current?.getMap().getCenter();
+        if (!center) return;
+        try {
+            const q = `${center.lat},${center.lng}`;
+            const data = await api.getWeatherAlerts(q);
+            if (data && data.alerts && data.alerts.alert && data.alerts.alert.length > 0) {
+                setAlertsData(data.alerts.alert);
+            } else {
+                setAlertsData([]);
+            }
+        } catch (e) {
+            console.error("Failed to fetch alerts", e);
+        }
+    };
+    // 初回と、マップ移動終了時に取得
+    fetchAlerts();
+    const map = mapRef.current?.getMap();
+    if (map) {
+        map.on('moveend', fetchAlerts);
+    }
+    return () => {
+        if (map) map.off('moveend', fetchAlerts);
+    };
+  }, [weatherLayerVisibility['wa-alerts']]);
 
   // --- ホバー時の処理 ---
   const handleMouseMove = useCallback((event: maplibregl.MapLayerMouseEvent) => {
@@ -1013,7 +1326,7 @@ function MapDashboard() {
       }
       layersToFilter.forEach(layerId => {
           if (map.getLayer(layerId)) {
-              map.setFilter(layerId, roadTypeFilter);
+              map.setFilter(layerId, roadTypeFilter as any);
           } else {
               throw new Error(`Layer ${layerId} not found during filter application.`);
           }
@@ -1099,6 +1412,22 @@ function MapDashboard() {
     });
   };
 
+  const handleToggleWeatherLayer = (id: string) => {
+    setWeatherLayerVisibility(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleAlertExpand = (index: number) => {
+    setExpandedAlertIndices(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
 
   // --- レンダリング ---
   return (
@@ -1146,7 +1475,6 @@ function MapDashboard() {
           style={{ width: '100%', height: '100%' }}
           mapStyle={mapStyleUrl}
           initialViewState={INITIAL_VIEW_STATE}
-          attributionControl={true}
           interactiveLayerIds={layersToFilter}
           onMouseMove={handleMouseMove}
           onClick={handleClick}
@@ -1155,8 +1483,83 @@ function MapDashboard() {
           onStyleData={handleStyleLoadOrChange}
         >
             <ScaleControl unit="metric" position="bottom-left" />
+            {/*
+            {weatherLayers.map(layer => (
+              weatherLayerVisibility[layer.id] && (
+                <Source key={layer.id} type="raster" tiles={[`${layer.url}${OWM_API_KEY}`]} tileSize={256}>
+                  <Layer id={`weather-${layer.id}`} type="raster" paint={{ 'raster-opacity': 0.7 }} />
+                </Source>
+              )
+            ))}
+            */}
+            {weatherApiLayers.map(layer => {
+              if (!weatherLayerVisibility[layer.id]) return null;
+              const { date, hour } = getWeatherMapParams();
+              const tileUrl = layer.url.replace('{date}', date).replace('{hour}', hour);
+              return (
+                <Source key={layer.id} type="raster" tiles={[tileUrl]} tileSize={256} attribution='Powered by <a href="https://www.weatherapi.com/" title="Free Weather API">WeatherAPI.com</a>'>
+                  <Layer id={`weather-api-${layer.id}`} type="raster" paint={{ 'raster-opacity': 0.6 }} />
+                </Source>
+              );
+            })}
+            {/*
+            {tomorrowIoLayers.map(layer => (
+              weatherLayerVisibility[layer.id] && (
+                <Source
+                    key={layer.id}
+                    type="raster"
+                    tiles={[`https://api.tomorrow.io/v4/map/tile/{z}/{x}/{y}/${layer.field}/${currentIsoTime}.png?apikey=${TOMORROW_IO_API_KEY}`]}
+                    tileSize={256}
+                >
+                  <Layer id={`tomorrow-io-${layer.id}`} type="raster" paint={{ 'raster-opacity': 0.6 }} />
+                </Source>
+              )
+            ))}
+            */}
         </Map>
         {renderTooltip()}
+        {/* Alerts Overlay */}
+        {weatherLayerVisibility['wa-alerts'] && alertsData && alertsData.length > 0 && (
+            <div style={{
+                position: 'absolute', top: '60px', left: '50%', transform: 'translateX(-50%)',
+                backgroundColor: 'rgba(255, 50, 50, 0.9)', color: 'white', padding: '10px',
+                borderRadius: '5px', zIndex: 1000, maxWidth: '80%', maxHeight: '200px', overflowY: 'auto',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.5)', fontFamily: 'sans-serif', fontSize: '13px'
+            }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '5px', borderBottom: '1px solid white', paddingBottom: '3px' }}>
+                    Weather Alerts ({alertsData.length})
+                </div>
+                {alertsData.map((alert: any, idx: number) => {
+                    const isExpanded = expandedAlertIndices.has(idx);
+                    return (
+                        <div key={idx} style={{ marginBottom: '8px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.3)', paddingBottom: '5px' }} onClick={() => toggleAlertExpand(idx)}>
+                            <div style={{ fontWeight: 'bold' }}>{alert.headline}</div>
+                            <div style={{ fontSize: '11px' }}>{alert.event}</div>
+                            {alert.desc && (
+                                <div style={{ fontSize: '10px', marginTop: '2px', opacity: 0.9 }}>
+                                    {isExpanded ? alert.desc : `${alert.desc.substring(0, 100)}${alert.desc.length > 100 ? '...' : ''}`}
+                                    {alert.desc.length > 100 && (
+                                        <span style={{ marginLeft: '5px', textDecoration: 'underline', fontSize: '9px', color: '#eee' }}>
+                                            {isExpanded ? '(Show less)' : '(Show more)'}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        )}
+        {weatherLayerVisibility['wa-alerts'] && alertsData && alertsData.length === 0 && (
+            <div style={{
+                position: 'absolute', top: '60px', left: '50%', transform: 'translateX(-50%)',
+                backgroundColor: 'rgba(50, 200, 50, 0.8)', color: 'white', padding: '5px 10px',
+                borderRadius: '5px', zIndex: 1000, fontFamily: 'sans-serif', fontSize: '12px'
+            }}>
+                No Weather Alerts in this area
+            </div>
+        )}
+
         <div style={{
           position: 'absolute', top: '10px', right: '10px',
           zIndex: 1, display: 'flex', flexDirection: 'column', gap: '8px',
@@ -1178,6 +1581,8 @@ function MapDashboard() {
                       onToggleIncidents={() => setIsIncidentsVisible(!isIncidentsVisible)}
                       selectedRoadTypes={selectedRoadTypes}
                       onToggleRoadType={handleToggleRoadType}
+                      weatherLayerVisibility={weatherLayerVisibility}
+                      onToggleWeatherLayer={handleToggleWeatherLayer}
                   />
               )}
           </div>
@@ -1187,7 +1592,7 @@ function MapDashboard() {
             zIndex: 1, display: 'flex', flexDirection: 'column',
             alignItems: 'flex-end', gap: '8px'
         }}>
-            <LegendControl />
+            <LegendControl visibleLayers={weatherLayerVisibility} />
             <div style={{ display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', borderRadius: '4px', overflow: 'hidden', borderTop: '1px solid #555' }}>
                 <button
                     onClick={handlePitchUp}

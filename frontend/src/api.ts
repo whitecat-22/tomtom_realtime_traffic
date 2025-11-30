@@ -58,4 +58,14 @@ export const api = {
     return client.get(`/api/traffic/incident-detail/${id}`);
   },
 
+  /**
+   * WeatherAPI.com Alerts API (Backend Proxy)
+   * @param q Query (Lat,Lon or City name)
+   */
+  getWeatherAlerts: (q: string) => {
+    return client.get('/api/weather/alerts', {
+      params: { q }
+    });
+  },
+
 };

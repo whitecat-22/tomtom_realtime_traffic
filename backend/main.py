@@ -17,6 +17,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 load_dotenv()
 TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
 TOMTOM_BASE_URL = os.getenv("TOMTOM_BASE_URL", "https://api.tomtom.com")
+WEATHERAPI_API_KEY = os.getenv("WEATHERAPI_API_KEY")
 FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", 8001))
 
 
@@ -82,7 +83,7 @@ async def get_tomtom_data(
 
         if expected_content_type_prefix:
             if not content_type.startswith(expected_content_type_prefix):
-                 # image/pbf などを許可
+                # image/pbf などを許可
                 if not (content_type.startswith("application/protobuf") or \
                         content_type.startswith("application/octet-stream") or \
                         content_type.startswith("image/pbf")):
@@ -194,9 +195,15 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                 "paint": {
                     "line-color": [
                         "interpolate", ["linear"], ["get", "traffic_level"],
-                        0,  '#f73027', 10, '#fc8d59', 20, '#fdbb2d',
-                        30, '#7cb342', 40, '#56B458', 50, '#1a9850',
-                        60, '#26c6da', 70, '#007bfa', 80, '#004CB0'
+                        0,  '#f73027',
+                        10, '#fc8d59',
+                        20, '#fdbb2d',
+                        30, '#7cb342',
+                        40, '#56B458',
+                        50, '#1a9850',
+                        60, '#26c6da',
+                        70, '#007bfa',
+                        80, '#004CB0'
                     ],
                     "line-width": ["interpolate", ["linear"], ["zoom"], 9, 3, 12, 6, 15, 9]
                 }
@@ -210,8 +217,11 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                 "paint": {
                     "line-color": [
                         "interpolate", ["linear"], ["coalesce", ["get", "magnitude"], 0],
-                        0, '#00004c', 1, '#f58240', 2, '#eb4c13',
-                        3, '#ab0000', 4, '#666666'
+                        0, '#00004c',
+                        1, '#f58240',
+                        2, '#eb4c13',
+                        3, '#ab0000',
+                        4, '#666666'
                     ],
                     "line-width": ["interpolate", ["linear"], ["zoom"], 9, 7, 12, 10, 15, 13]
                 }
@@ -225,8 +235,11 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                 "paint": {
                     "line-color": [
                         "interpolate", ["linear"], ["coalesce", ["get", "magnitude"], 0],
-                        0, '#b2b2b2', 1, '#ffce43', 2, '#ff8939',
-                        3, '#f40000', 4, '#c1272d'
+                        0, '#b2b2b2',
+                        1, '#ffce43',
+                        2, '#ff8939',
+                        3, '#f40000',
+                        4, '#c1272d'
                     ],
                     "line-dasharray": [0.5, 0.5],
                     "line-width": ["interpolate", ["linear"], ["zoom"], 9, 3, 12, 6, 15, 9]
@@ -375,12 +388,49 @@ async def get_traffic_incident_detail(detail_id: str):
         return response.json()
     except HTTPException as exc:
         if exc.status_code == 404:
-             logger.warning(f"Incident detail not found (404) for ID: {detail_id}")
+            logger.warning(f"Incident detail not found (404) for ID: {detail_id}")
         raise exc
     except Exception as e:
         logger.error(f"Unexpected error during incident detail fetch: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
+
+@app.get("/api/weather/alerts")
+async def get_weather_alerts(q: str):
+    """
+    WeatherAPI.com Alerts API をプロキシする
+    """
+    if not WEATHERAPI_API_KEY:
+        raise HTTPException(status_code=500, detail="WEATHERAPI_API_KEY is not configured")
+
+    # WeatherAPI.com は別ドメインなので、既存の client (TomTom用) ではなく
+    # 新しいリクエストを行うか、汎用的な client を使うべきだが、
+    # ここでは簡易的に httpx.AsyncClient を一時的に使用する (または global client を再利用して base_url を無視する)
+
+    # global client は base_url が設定されているため、絶対URLを指定すればオーバーライドされるはず
+    url = "http://api.weatherapi.com/v1/alerts.json"
+    params = {
+        "key": WEATHERAPI_API_KEY,
+        "q": q,
+        "alerts": "yes"
+    }
+
+    logger.info(f"Calling WeatherAPI.com Alerts API for query: {q}")
+
+    try:
+        if client is None:
+            raise HTTPException(status_code=500, detail="HTTPX client not initialized")
+
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as exc:
+        logger.error(f"WeatherAPI Error: {exc.response.status_code} - {exc.response.text}")
+        raise HTTPException(status_code=exc.response.status_code, detail="WeatherAPI Error")
+    except Exception as e:
+        logger.error(f"Unexpected error during weather alerts fetch: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 if __name__ == "__main__":
     import uvicorn
