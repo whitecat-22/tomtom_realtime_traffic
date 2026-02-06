@@ -194,7 +194,7 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                 "source-layer": "Traffic flow",
                 "paint": {
                     "line-color": [
-                        "interpolate", ["linear"], ["get", "traffic_level"],
+                        "interpolate", ["linear"], ["coalesce", ["get", "absolute_speed"], 0],
                         0,  '#f73027',
                         10, '#fc8d59',
                         20, '#fdbb2d',
@@ -216,7 +216,7 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                 "layout": {"line-join": "round", "line-cap": "round"},
                 "paint": {
                     "line-color": [
-                        "interpolate", ["linear"], ["coalesce", ["get", "magnitude"], 0],
+                        "interpolate", ["linear"], ["coalesce", ["get", "magnitude_of_delay"], 0],
                         0, '#00004c',
                         1, '#f58240',
                         2, '#eb4c13',
@@ -234,7 +234,7 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                 "layout": {"line-cap": "round", "line-join": "round"},
                 "paint": {
                     "line-color": [
-                        "interpolate", ["linear"], ["coalesce", ["get", "magnitude"], 0],
+                        "interpolate", ["linear"], ["coalesce", ["get", "magnitude_of_delay"], 0],
                         0, '#b2b2b2',
                         1, '#ffce43',
                         2, '#ff8939',
@@ -268,11 +268,10 @@ async def get_map_style_satellite(request: Request):
 # --- タイルAPI ---
 @app.get("/api/traffic/flow-tiles/{z}/{x}/{y}.pbf")
 async def get_traffic_flow_tile(z: int, x: int, y: int):
-    road_types_param = "[0,1,2,3,4,5,6,7,8]"
-    tags_param = "[road_type,traffic_level,traffic_road_coverage,left_hand_traffic,road_closure,road_category,road_subcategory]"
-    logger.debug(f"Calling TomTom Flow Tile API: /traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.pbf")
-    api_path = f"/traffic/map/4/tile/flow/absolute/{z}/{x}/{y}.pbf"
-    params = {"roadTypes": road_types_param, "tags": tags_param}
+    tags_param = "road_category,road_subcategory,left_hand_traffic,road_closure,absolute_speed,relative_speed,part_of_two_way_road,openlr,display_class"
+    logger.debug(f"Calling TomTom Orbis Flow Tile API: /maps/orbis/traffic/tile/flow/{z}/{x}/{y}.pbf")
+    api_path = f"/maps/orbis/traffic/tile/flow/{z}/{x}/{y}.pbf"
+    params = {"tags": tags_param, "apiVersion": 1}
     try:
         response = await get_tomtom_data(
             api_path, params=params,
@@ -293,10 +292,11 @@ async def get_traffic_flow_tile(z: int, x: int, y: int):
 
 @app.get("/api/traffic/incident-tiles/{z}/{x}/{y}.pbf")
 async def get_traffic_incident_tile(z: int, x: int, y: int):
-    tags_param = "[icon_category,description,delay,road_type,left_hand_traffic,magnitude,traffic_road_coverage,clustered,end_date,id,probability_of_occurrence,number_of_reports,last_report_time,road_category,road_subcategory]"
-    params = {"tags": tags_param}
-    api_path = f"/traffic/map/4/tile/incidents/{z}/{x}/{y}.pbf"
-    logger.debug(f"Calling TomTom Incident Tile API: {api_path}")
+    # Orbis Tags: id, icon_category_[idx], left_hand_traffic, magnitude_of_delay, road_category, road_subcategory, point_type
+    tags_param = "icon_category,magnitude_of_delay,road_category,road_subcategory,description,delay,start_time,end_time,probability_of_occurrence,number_of_reports,last_report_time,average_speed_kmph,openlr,time_validity"
+    api_path = f"/maps/orbis/traffic/tile/incidents/{z}/{x}/{y}.pbf"
+    params = {"tags": tags_param, "apiVersion": 1}
+    logger.debug(f"Calling TomTom Orbis Incident Tile API: {api_path}")
     try:
         response = await get_tomtom_data(
             api_path, params=params,
@@ -353,7 +353,8 @@ async def get_traffic_flow_segment(z: int, lat: float, lon: float):
     point = f"{lat},{lon}"
     params = {
         "point": point,
-        "unit": "kmph"
+        "unit": "kmph",
+        "openLr": "true",
     }
     logger.info(f"Calling TomTom Flow Segment Data API (v4) for point: {point} at zoom: {z}")
     try:
@@ -369,16 +370,18 @@ async def get_traffic_flow_segment(z: int, lat: float, lon: float):
 @app.get("/api/traffic/incident-detail/{detail_id}")
 async def get_traffic_incident_detail(detail_id: str):
     """
-    TomTom Incident Details API (v5) をプロキシする
+    TomTom Incident Details API (Orbis) をプロキシする
     """
-    api_path = f"/traffic/services/5/incidentDetails"
+    api_path = f"/maps/orbis/traffic/incidentDetails"
 
-    fields_param = "{incidents{type,geometry{type,coordinates},properties{id,iconCategory,events{description,code,iconCategory},startTime,endTime,from,to,length,delay,roadNumbers,timeValidity,probabilityOfOccurrence,numberOfReports,lastReportTime,tmc{countryCode,tableNumber,tableVersion,direction,points{location,offset}}}}}"
+    # Orbis のフィールド名に合わせる (magnitudeOfDelay)
+    fields_param = "{incidents{type,geometry{type,coordinates},properties{id,iconCategory,magnitudeOfDelay,events{description,code,iconCategory},startTime,endTime,from,to,length,delay,roadNumbers,timeValidity,probabilityOfOccurrence,numberOfReports,lastReportTime,tmc{countryCode,tableNumber,tableVersion,direction,points{location,offset}}}}}"
 
     params = {
         "ids": detail_id,
         "language": "en-US",
-        "fields": fields_param
+        "fields": fields_param,
+        "apiVersion": 1
     }
 
     logger.info(f"Calling TomTom Incident Details API for ID: {detail_id}")
