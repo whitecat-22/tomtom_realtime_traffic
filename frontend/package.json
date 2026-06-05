@@ -12,7 +12,7 @@
   "dependencies": {
     "@deck.gl/layers": "^9.2.2",
     "@deck.gl/react": "^9.2.2",
-    "axios": "^1.13.5",
+    "axios": "^1.16.0",
     "deck.gl": "^9.2.2",
     "maplibre-gl": "^5.9.0",
     "npm": "^11.11.1",
