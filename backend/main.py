@@ -106,29 +106,46 @@ async def get_tomtom_data(
         raise HTTPException(status_code=503, detail=f"Failed to connect to TomTom API: {exc}")
 
 # --- ベース地図定義 ---
-BaseMapType = Literal["positron", "darkmatter", "osm-standard", "satellite"]
+# CARTO (basemaps.cartocdn.com) は API キー必須になり「 API KEY REQUIRED 」の
+# ウォーターマークが入るため、キー不要の Esri Canvas / OSM に差し替えている。
+BaseMapType = Literal[
+    "positron", "darkmatter", "osm-standard", "osm-grayscale", "satellite"
+]
+
+ESRI_ATTRIBUTION = (
+    'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, '
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+)
+OSM_ATTRIBUTION = (
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+)
+
 BASE_MAPS: Dict[BaseMapType, Dict[str, Any]] = {
+    # Light: Esri World Light Gray Canvas (API キー不要)
     "positron": {
-        "source_id": "cartodb-positron",
+        "source_id": "esri-light-gray",
         "source": {
             "type": "raster",
-            "tiles": ["https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"],
+            "tiles": ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"],
             "tileSize": 256,
-            "attribution": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-            "maxzoom": 19
+            "attribution": ESRI_ATTRIBUTION,
+            "maxzoom": 16
         },
-        "layer_id": "cartodb-base-layer"
+        "layer_id": "esri-light-gray-layer",
+        "paint": {}
     },
+    # Dark: Esri World Dark Gray Canvas (API キー不要)
     "darkmatter": {
-        "source_id": "cartodb-darkmatter",
+        "source_id": "esri-dark-gray",
         "source": {
             "type": "raster",
-            "tiles": ["https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"],
+            "tiles": ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"],
             "tileSize": 256,
-            "attribution": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-            "maxzoom": 19
+            "attribution": ESRI_ATTRIBUTION,
+            "maxzoom": 16
         },
-        "layer_id": "cartodb-dark-layer"
+        "layer_id": "esri-dark-gray-layer",
+        "paint": {}
     },
     "osm-standard": {
         "source_id": "osm-standard",
@@ -136,10 +153,31 @@ BASE_MAPS: Dict[BaseMapType, Dict[str, Any]] = {
             "type": "raster",
             "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
             "tileSize": 256,
-            "attribution": '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            "attribution": OSM_ATTRIBUTION,
             "maxzoom": 19
         },
-        "layer_id": "osm-standard-layer"
+        "layer_id": "osm-standard-layer",
+        "paint": {}
+    },
+    # OSM グレースケール: CSS filter だと交通レイヤまで灰色になるため、
+    # MapLibre の raster paint でベース地図レイヤのみ減色する。
+    "osm-grayscale": {
+        "source_id": "osm-grayscale",
+        "source": {
+            "type": "raster",
+            "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+            "tileSize": 256,
+            "attribution": OSM_ATTRIBUTION,
+            "maxzoom": 19
+        },
+        "layer_id": "osm-grayscale-layer",
+        "paint": {
+            "raster-saturation": -1,
+            "raster-contrast": -0.15,
+            "raster-brightness-min": 0.15,
+            "raster-brightness-max": 0.95,
+            "raster-opacity": 0.9
+        }
     },
     "satellite": {
         "source_id": "esri-world-imagery",
@@ -147,12 +185,49 @@ BASE_MAPS: Dict[BaseMapType, Dict[str, Any]] = {
             "type": "raster",
             "tiles": ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
             "tileSize": 256,
-            "attribution": 'Tiles &copy; Esri &mdash; Source: Esri, et al.',
+            "attribution": ESRI_ATTRIBUTION,
             "maxzoom": 19
         },
-        "layer_id": "esri-imagery-layer"
+        "layer_id": "esri-imagery-layer",
+        "paint": {}
     }
 }
+
+# --- 双方向路線のオフセット表示 ---
+# ベクタータイルの線ジオメトリは進行方向を向いており、line-offset の正値は
+# 進行方向に対して右側へのずらしとなる。日本のような左側通行
+# (left_hand_traffic = true) では負値を使う。
+#
+# 【重要】MapLibre / Mapbox のスタイル仕様では ["zoom"] 式は
+# 最上位の "interpolate" / "step" の入力としてのみ使用できる。
+# ["case", ...] の内側に ["interpolate", ["linear"], ["zoom"], ...] を入れると
+# スタイル検証エラーになり、地図が一切描画されない。
+# よって zoom 補間を外側、特徴値による分岐 (case) を各ストップの
+# 出力値に置く形にする。
+def _two_way_offset_case(offset_px: float) -> Any:
+    """part_of_two_way_road が真のときのみ左右へオフセットする case 式。"""
+    return [
+        "case",
+        ["!=", ["get", "part_of_two_way_road"], True], 0,
+        ["==", ["get", "left_hand_traffic"], True], -offset_px,
+        offset_px
+    ]
+
+
+def _two_way_offset(o9: float, o12: float, o15: float) -> Any:
+    return [
+        "interpolate", ["linear"], ["zoom"],
+        9, _two_way_offset_case(o9),
+        12, _two_way_offset_case(o12),
+        15, _two_way_offset_case(o15)
+    ]
+
+
+# トラフィックフロー用
+TWO_WAY_OFFSET: Any = _two_way_offset(2, 4, 6)
+
+# インシデントは線幅が太いため、フローと重ならないよう少し大きめにずらす。
+TWO_WAY_OFFSET_INCIDENT: Any = _two_way_offset(3, 5, 7)
 
 
 # --- ヘルパー関数: スタイルJSON生成 ---
@@ -186,6 +261,8 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                 "id": base_map_config["layer_id"],
                 "type": "raster",
                 "source": base_map_config["source_id"],
+                # グレースケール等の減色設定 (ベース地図レイヤのみに適用される)
+                "paint": base_map_config.get("paint", {}),
             },
             {
                 "id": "tomtom-traffic-layer",
@@ -205,7 +282,8 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                         70, '#007bfa',
                         80, '#004CB0'
                     ],
-                    "line-width": ["interpolate", ["linear"], ["zoom"], 9, 3, 12, 6, 15, 9]
+                    "line-width": ["interpolate", ["linear"], ["zoom"], 9, 3, 12, 6, 15, 9],
+                    "line-offset": TWO_WAY_OFFSET
                 }
             },
             {
@@ -223,7 +301,8 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                         3, '#ab0000',
                         4, '#666666'
                     ],
-                    "line-width": ["interpolate", ["linear"], ["zoom"], 9, 7, 12, 10, 15, 13]
+                    "line-width": ["interpolate", ["linear"], ["zoom"], 9, 7, 12, 10, 15, 13],
+                    "line-offset": TWO_WAY_OFFSET_INCIDENT
                 }
             },
             {
@@ -242,7 +321,8 @@ def create_map_style(request: Request, base_map_type: BaseMapType) -> Dict[str, 
                         4, '#c1272d'
                     ],
                     "line-dasharray": [0.5, 0.5],
-                    "line-width": ["interpolate", ["linear"], ["zoom"], 9, 3, 12, 6, 15, 9]
+                    "line-width": ["interpolate", ["linear"], ["zoom"], 9, 3, 12, 6, 15, 9],
+                    "line-offset": TWO_WAY_OFFSET_INCIDENT
                 }
             }
         ]
@@ -260,6 +340,10 @@ async def get_map_style_dark(request: Request):
 @app.get("/api/map/style-osm-standard.json")
 async def get_map_style_osm_standard(request: Request):
     return create_map_style(request, "osm-standard")
+
+@app.get("/api/map/style-osm-grayscale.json")
+async def get_map_style_osm_grayscale(request: Request):
+    return create_map_style(request, "osm-grayscale")
 
 @app.get("/api/map/style-satellite.json")
 async def get_map_style_satellite(request: Request):
@@ -293,7 +377,7 @@ async def get_traffic_flow_tile(z: int, x: int, y: int):
 @app.get("/api/traffic/incident-tiles/{z}/{x}/{y}.pbf")
 async def get_traffic_incident_tile(z: int, x: int, y: int):
     # Orbis Tags: id, icon_category_[idx], left_hand_traffic, magnitude_of_delay, road_category, road_subcategory, point_type
-    tags_param = "icon_category,magnitude_of_delay,road_category,road_subcategory,description,delay,start_time,end_time,probability_of_occurrence,number_of_reports,last_report_time,average_speed_kmph,openlr,time_validity"
+    tags_param = "icon_category,magnitude_of_delay,road_category,road_subcategory,description,delay,start_time,end_time,probability_of_occurrence,number_of_reports,last_report_time,average_speed_kmph,openlr,time_validity,part_of_two_way_road,left_hand_traffic"
     api_path = f"/maps/orbis/traffic/tile/incidents/{z}/{x}/{y}.pbf"
     params = {"tags": tags_param, "apiVersion": 1}
     logger.debug(f"Calling TomTom Orbis Incident Tile API: {api_path}")
