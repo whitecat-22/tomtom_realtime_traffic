@@ -36,18 +36,66 @@ const INITIAL_VIEW_STATE = {
   bearing: 0,
 };
 
-// --- 凡例データ ---
-const legendData = [
-  { speed: ' 0-10', color: '#f73027' },
-  { speed: '10-20', color: '#fc8d59' },
-  { speed: '20-30', color: '#fdbb2d' },
-  { speed: '30-40', color: '#7cb342' },
-  { speed: '40-50', color: '#56B458' },
-  { speed: '50-60', color: '#1a9850' },
-  { speed: '60-70', color: '#26c6da' },
-  { speed: '70-80', color: '#007bfa' },
-  { speed: '80-',   color: '#004CB0' },
+// --- 凡例データ (Traffic Speed: ユーザー編集可能) ---
+export type SpeedStop = { speed: number; color: string };
+
+const DEFAULT_SPEED_STOPS: SpeedStop[] = [
+  { speed: 0, color: "#f73027" },
+  { speed: 10, color: "#fc8d59" },
+  { speed: 20, color: "#fdbb2d" },
+  { speed: 30, color: "#7cb342" },
+  { speed: 40, color: "#56B458" },
+  { speed: 50, color: "#1a9850" },
+  { speed: 60, color: "#26c6da" },
+  { speed: 70, color: "#007bfa" },
+  { speed: 80, color: "#004CB0" },
 ];
+
+const SPEED_STOPS_STORAGE_KEY = "trafficSpeedStops";
+
+// localStorage から凡例設定を復元する
+const loadSpeedStops = (): SpeedStop[] => {
+  try {
+    const raw = localStorage.getItem(SPEED_STOPS_STORAGE_KEY);
+    if (!raw) return DEFAULT_SPEED_STOPS;
+    const parsed = JSON.parse(raw) as SpeedStop[];
+    if (!Array.isArray(parsed) || parsed.length < 2) return DEFAULT_SPEED_STOPS;
+    const valid = parsed.every(
+      (s) => typeof s?.speed === "number" && typeof s?.color === "string",
+    );
+    return valid ? parsed : DEFAULT_SPEED_STOPS;
+  } catch {
+    return DEFAULT_SPEED_STOPS;
+  }
+};
+
+// MapLibre の interpolate 式は「昇順かつ重複なし」の stop が必要
+const normalizeSpeedStops = (stops: SpeedStop[]): SpeedStop[] => {
+  const sorted = [...stops]
+    .filter((s) => Number.isFinite(s.speed))
+    .sort((a, b) => a.speed - b.speed);
+  return sorted.filter((s, i) => i === 0 || s.speed > sorted[i - 1].speed);
+};
+
+// line-color 用の interpolate 式を組み立てる
+const buildSpeedColorExpression = (stops: SpeedStop[]): any => {
+  const normalized = normalizeSpeedStops(stops);
+  const safe = normalized.length >= 2 ? normalized : DEFAULT_SPEED_STOPS;
+  return [
+    "interpolate",
+    ["linear"],
+    ["coalesce", ["get", "absolute_speed"], 0],
+    ...safe.flatMap((s) => [s.speed, s.color]),
+  ];
+};
+
+// 凡例のレンジ表記 (例: "20-30", "80-") を作る
+const formatSpeedRange = (stops: SpeedStop[], index: number): string => {
+  const next = stops[index + 1];
+  return next
+    ? `${stops[index].speed}-${next.speed}`
+    : `${stops[index].speed}-`;
+};
 
 // --- 道路種別データ (Orbis 道路カテゴリ) ---
 const roadTypeData = [
@@ -148,10 +196,37 @@ const layersToFilter = [
 // --- 開閉式凡例コンポーネント ---
 const LegendControl = ({
   visibleLayers,
+  speedStops,
+  onChangeSpeedStops,
 }: {
   visibleLayers: { [key: string]: boolean };
+  speedStops: SpeedStop[];
+  onChangeSpeedStops: (stops: SpeedStop[]) => void;
 }) => {
   const [isLegendOpen, setIsLegendOpen] = useState(false);
+  const [isEditingSpeed, setIsEditingSpeed] = useState(false);
+
+  const sortedSpeedStops = normalizeSpeedStops(speedStops);
+
+  const updateSpeedStop = (index: number, patch: Partial<SpeedStop>) => {
+    onChangeSpeedStops(
+      sortedSpeedStops.map((s, i) => (i === index ? { ...s, ...patch } : s)),
+    );
+  };
+  const addSpeedStop = () => {
+    const max = sortedSpeedStops.length
+      ? Math.max(...sortedSpeedStops.map((s) => s.speed))
+      : 0;
+    onChangeSpeedStops([
+      ...sortedSpeedStops,
+      { speed: max + 10, color: "#ffffff" },
+    ]);
+  };
+  const removeSpeedStop = (index: number) => {
+    if (sortedSpeedStops.length <= 2) return; // interpolate は最低2点必要
+    onChangeSpeedStops(sortedSpeedStops.filter((_, i) => i !== index));
+  };
+  const resetSpeedStops = () => onChangeSpeedStops(DEFAULT_SPEED_STOPS);
   const openStyle: React.CSSProperties = {
     backgroundColor: "rgba(30,30,30,0.8)",
     color: "white",
@@ -248,33 +323,164 @@ const LegendControl = ({
 
   if (isLegendOpen) {
     return (
-      <div style={openStyle} onClick={() => setIsLegendOpen(false)}>
-        {/* Speed Legend (Always available if flow is visible, but here we just show it) */}
-        <h4
+      <div style={openStyle} onClick={(e) => e.stopPropagation()}>
+        {/* Speed Legend (速度レンジと色をユーザーが編集できる) */}
+        <div
           style={{
-            margin: "0 0 5px 0",
-            color: "white",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "8px",
             borderBottom: "1px solid #555",
             paddingBottom: "2px",
+            marginBottom: "5px",
           }}
         >
-          Traffic Speed (km/h)
-        </h4>
-        {legendData.map((item) => (
-          <div key={item.speed} style={{ marginBottom: "3px" }}>
+          <h4 style={{ margin: 0, color: "white" }}>Traffic Speed (km/h)</h4>
+          <div style={{ display: "flex", gap: "4px" }}>
+            <button
+              onClick={() => setIsEditingSpeed(!isEditingSpeed)}
+              title="Edit speed ranges and colors"
+              style={{
+                fontSize: "11px",
+                backgroundColor: isEditingSpeed ? "#1a73e8" : "#444",
+                color: "white",
+                border: "1px solid #666",
+                borderRadius: "3px",
+                padding: "2px 6px",
+                cursor: "pointer",
+              }}
+            >
+              {isEditingSpeed ? "Done" : "Edit"}
+            </button>
+            <button
+              onClick={() => setIsLegendOpen(false)}
+              title="Close legend"
+              style={{
+                fontSize: "11px",
+                backgroundColor: "#444",
+                color: "white",
+                border: "1px solid #666",
+                borderRadius: "3px",
+                padding: "2px 6px",
+                cursor: "pointer",
+              }}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {sortedSpeedStops.map((item, index) => (
+          <div
+            key={`${item.speed}-${index}`}
+            style={{
+              marginBottom: "3px",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
             <span
               style={{
                 display: "inline-block",
                 width: "15px",
                 height: "15px",
                 backgroundColor: item.color,
-                marginRight: "5px",
+                border: "1px solid #888",
                 verticalAlign: "middle",
+                flexShrink: 0,
               }}
             ></span>
-            <span>{item.speed}</span>
+            {isEditingSpeed ? (
+              <>
+                <input
+                  type="number"
+                  value={item.speed}
+                  step={5}
+                  min={0}
+                  onChange={(e) =>
+                    updateSpeedStop(index, { speed: Number(e.target.value) })
+                  }
+                  style={{
+                    width: "58px",
+                    backgroundColor: "#222",
+                    color: "white",
+                    border: "1px solid #666",
+                    borderRadius: "3px",
+                    fontSize: "12px",
+                    padding: "1px 3px",
+                  }}
+                />
+                <input
+                  type="color"
+                  value={item.color}
+                  onChange={(e) =>
+                    updateSpeedStop(index, { color: e.target.value })
+                  }
+                  style={{
+                    width: "30px",
+                    height: "20px",
+                    padding: 0,
+                    border: "1px solid #666",
+                    background: "none",
+                    cursor: "pointer",
+                  }}
+                />
+                <button
+                  onClick={() => removeSpeedStop(index)}
+                  disabled={sortedSpeedStops.length <= 2}
+                  title="Remove this stop"
+                  style={{
+                    background: "transparent",
+                    color: sortedSpeedStops.length <= 2 ? "#666" : "#ff8a80",
+                    border: "none",
+                    cursor:
+                      sortedSpeedStops.length <= 2 ? "not-allowed" : "pointer",
+                    fontSize: "13px",
+                  }}
+                >
+                  ×
+                </button>
+              </>
+            ) : (
+              <span>{formatSpeedRange(sortedSpeedStops, index)}</span>
+            )}
           </div>
         ))}
+
+        {isEditingSpeed && (
+          <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+            <button
+              onClick={addSpeedStop}
+              style={{
+                fontSize: "11px",
+                backgroundColor: "#444",
+                color: "white",
+                border: "1px solid #666",
+                borderRadius: "3px",
+                padding: "2px 6px",
+                cursor: "pointer",
+              }}
+            >
+              + Add
+            </button>
+            <button
+              onClick={resetSpeedStops}
+              style={{
+                fontSize: "11px",
+                backgroundColor: "#444",
+                color: "white",
+                border: "1px solid #666",
+                borderRadius: "3px",
+                padding: "2px 6px",
+                cursor: "pointer",
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        )}
 
         {/* Weather Legends */}
         {Object.keys(weatherLegends).map((key) => {
@@ -405,13 +611,28 @@ const CursorCoordinates = ({
 };
 
 // --- ベースマップスタイル定義 ---
-type BaseMapStyleKey = "positron" | "darkmatter" | "osm-standard" | "satellite";
+type BaseMapStyleKey =
+  | "positron"
+  | "darkmatter"
+  | "osm-standard"
+  | "osm-grayscale"
+  | "satellite";
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8001";
 const baseMapUrls: Record<BaseMapStyleKey, string> = {
   positron: `${apiBaseUrl}/api/map/style.json`,
   darkmatter: `${apiBaseUrl}/api/map/style-dark.json`,
   "osm-standard": `${apiBaseUrl}/api/map/style-osm-standard.json`,
+  "osm-grayscale": `${apiBaseUrl}/api/map/style-osm-grayscale.json`,
   satellite: `${apiBaseUrl}/api/map/style-satellite.json`,
+};
+
+// メニューに表示するラベル (baseMapUrls のキー順で表示される)
+const baseMapLabels: Record<BaseMapStyleKey, string> = {
+  positron: "Light",
+  darkmatter: "Dark",
+  "osm-standard": "OSM",
+  "osm-grayscale": "OSM (Grayscale)",
+  satellite: "Satellite",
 };
 
 // --- 共通ボタンスタイル (ダークテーマ) ---
@@ -488,16 +709,7 @@ const BaseMapSwitcher: React.FC<BaseMapSwitcherProps> = ({
             Map type
           </h4>
           {(Object.keys(baseMapUrls) as BaseMapStyleKey[]).map((key) => {
-            const label =
-              key === "positron"
-                ? "Light"
-                : key === "darkmatter"
-                  ? "Dark"
-                  : key === "osm-standard"
-                    ? "OSM"
-                    : key === "satellite"
-                      ? "Satellite"
-                      : key;
+            const label = baseMapLabels[key] ?? key;
             return (
               <label
                 key={key}
@@ -1687,6 +1899,8 @@ function MapDashboard() {
   const mapRef = useRef<MapRef>(null);
   const [currentMapStyleKey, setCurrentMapStyleKey] =
     useState<BaseMapStyleKey>("positron");
+  // Traffic Speed 凡例 (速度レンジと色) のユーザー設定
+  const [speedStops, setSpeedStops] = useState<SpeedStop[]>(loadSpeedStops);
   const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -2083,12 +2297,51 @@ function MapDashboard() {
     selectedRoadTypes,
     applyFiltersAndVisibility,
   ]);
+
+  // --- Traffic Speed 凡例設定の永続化 ---
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        SPEED_STOPS_STORAGE_KEY,
+        JSON.stringify(normalizeSpeedStops(speedStops)),
+      );
+    } catch {
+      // localStorage が使えない環境では無視する
+    }
+  }, [speedStops]);
+
+  // --- Traffic Speed 凡例設定を line-color に反映 ---
+  const applySpeedColors = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    if (!map.isStyleLoaded() || !map.getLayer("tomtom-traffic-layer")) {
+      map.once("render", applySpeedColors);
+      return;
+    }
+    try {
+      map.setPaintProperty(
+        "tomtom-traffic-layer",
+        "line-color",
+        buildSpeedColorExpression(speedStops) as any,
+      );
+    } catch {
+      map.off("render", applySpeedColors);
+      map.once("render", applySpeedColors);
+    }
+  }, [speedStops]);
+
+  useEffect(() => {
+    applySpeedColors();
+  }, [applySpeedColors]);
+
   const handleStyleLoadOrChange = useCallback(() => {
     const map = mapRef.current?.getMap();
     if (map) {
       applyFiltersAndVisibility();
+      // ベースマップ切替でスタイルが再読込されるため凡例設定を再適用する
+      applySpeedColors();
     }
-  }, [applyFiltersAndVisibility]);
+  }, [applyFiltersAndVisibility, applySpeedColors]);
 
   // --- ズーム/ピッチ コントロール関数 ---
   const handleZoomIn = () => mapRef.current?.zoomIn();
@@ -2458,7 +2711,11 @@ function MapDashboard() {
             gap: "8px",
           }}
         >
-          <LegendControl visibleLayers={weatherLayerVisibility} />
+          <LegendControl
+            visibleLayers={weatherLayerVisibility}
+            speedStops={speedStops}
+            onChangeSpeedStops={setSpeedStops}
+          />
           <div
             style={{
               display: "flex",
